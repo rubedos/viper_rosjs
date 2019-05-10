@@ -7,13 +7,18 @@
   <script src="3rdparty/eventemitter2.js"></script>
   <script src="3rdparty/roslib.js"></script>
   <script src="3rdparty/base64-binary.js"></script>
-  <!-- <script src="cvm_api.js" type="text/javascript"></script> -->
   <script src="viper.js" type="text/javascript"></script>
     <script>
+		/** This example demonstrated how to subscribe to special type of topic - RGB image stream and render it in canvas element
+		 */
 		var viper = null; 	// viper handle
 		var sub = null;		// subscription handle
 		function onload() {
-			viper = new VIPER({viper_ip : "192.168.1.170"});
+		}
+
+		function connect() {
+			var ip = document.getElementById('viper_ip').value;
+			viper = new VIPER({viper_ip : ip});
 			viper.onConnected = onConnected;
 			viper.connect();
 		}
@@ -57,6 +62,7 @@
 	</script>
 </head>
 <body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
+	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();">Connect</button></div>
 	<div>Open javascript console for more information...</div>
 	<table>
 	<tr>

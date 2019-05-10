@@ -2,43 +2,39 @@
 <html>
 
 <head>
-  <title>Hello World. VIPER ROSJS</title>
+  <title>Read Topic. VIPER ROSJS</title>
   <meta charset="utf-8" />
   <script src="3rdparty/eventemitter2.js"></script>
   <script src="3rdparty/roslib.js"></script>
   <script src="3rdparty/base64-binary.js"></script>
   <script src="viper.js" type="text/javascript"></script>
     <script>
-		/** This example demonstrated how to initialize connection to VIPER and then read device information like topics,
-		applications, version etc.
+		/** This example demonstrated how to subscribe to selected topic and process output. Here we are gonna listen for VIPER 
+		 logger topic named '/rosout' and print messages to html page. Any other topic can be subscribed in a similar way, except 
+		 for images - these topics have binary arrays that need to be decoded firs.
+		 
 		 */
-		var viper = null;
+		var viper = null; 	// viper handle
+		var sub = null;		// subscription handle
 		function onload() {
-
 		}
-		
+
 		function connect() {
 			var ip = document.getElementById('viper_ip').value;
 			viper = new VIPER({viper_ip : ip});
 			viper.log = myLog;
-			viper.log('Hello world!');
+			viper.log('Ready!');
 			viper.onConnected = onConnected;
 			viper.connect();
-		}
+		}	
 		
+		var level = 2;
 		function onConnected() {
-			viper.log('Is connected: ', viper.connected);
-			viper.log('VIPER version is ', viper.version);
-			viper.log('Namespace: ', viper.deviceInfo.get("VIPER_PREFIX"));
-			viper.log('');
-			viper.log('Applications:');
-			for (var i = 0; i < viper.apps.length; i++)
-				viper.log('&nbsp; "', viper.apps[i].name, '", Is active: ', viper.apps[i].isActive);
-			viper.log('');
-			viper.log('Published topics:');
-			for (var [topic, type] of viper.topics){
-				viper.log('&nbsp; ', topic, '&nbsp;&nbsp;(', type, ')');
-			}
+			sub = viper.subscribeTopic('/rosout', function(msg) {
+				// More info about logging message: http://docs.ros.org/hydro/api/rosgraph_msgs/html/msg/Log.html
+				level = msg.level;
+				viper.log('<', msg.name, '>: ', msg.msg);
+			});
 		}
 		
 		function finalize() {
@@ -50,14 +46,22 @@
 		function myLog(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10) {
 			var myConsole = document.getElementById('myConsole');
 			var t = new Date();
-			var line = '<div>[' + t.getHours() + ':' + t.getMinutes() + ':' + t.getSeconds() + ']: ' 
+			color = '#000000';	// INFO
+			switch (level){
+				case 1: color = '#555555'; break;
+				case 4: color = '#FFA07A'; break;
+				case 8: color = '#FF0000'; break;
+				case 16: color = '#FF5733'; break;
+			}
+			var line = '<div style="color:' + color +'">[' + t.getHours() + ':' + t.getMinutes() + ':' + t.getSeconds() + ']: ' 
 				+ (m1 == null? "":m1) + (m2 == null? "":m2) + (m3 == null? "":m3) + (m4 == null? "":m4)	+ (m5 == null? "":m5)+ (m6 == null? "":m6)+ (m7 == null? "":m7)+ (m8 == null? "":m8)+ (m9 == null? "":m9)+ (m10 == null? "":m10) + '</div>';
 			myConsole.insertAdjacentHTML('beforeend', line);
 		}
 	</script>
 </head>
 <body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
-</body>
 	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();">Connect</button></div>
 	<div id="myConsole"></div>
+</body>
+
 </html>

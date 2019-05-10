@@ -61,6 +61,26 @@ this.close = function() {
 	this.log('Closed connection to ' + this.ros_ip);
 }
 
+this.subscribeTopic = function(topic, callback) {
+	__instance.log('Subscribing to topic ', topic);
+	if (this.topics == null) throw "Topic list is empty";
+	var type = null;
+	for (var [ttopic, ttype] of __instance.topics)
+		if (ttopic == topic) type = ttype;
+	if (type == null) throw 'Topic ' + topic + ' type is unknown';
+	var listener = new ROSLIB.Topic({
+		ros : __instance.ros,
+		name : topic,
+		messageType : type,
+		queue_size : 1
+	});
+	listener.subscribe(function(message) {
+		callback(message);
+	});
+	
+	return listener;
+}
+
 /** Subscribe to image topic and sends updated image data to given callback.
  Function returns listener which is a handle to call unsubscribe when finished streaming.
  @param topic - the name of image topic
@@ -75,7 +95,7 @@ this.subscribeImage = function(topic, callback){
 		messageType : 'sensor_msgs/Image',
 		queue_size : 1
 	});
-	listeners.set(listener.name, callback);
+	//listeners.set(listener.name, callback);
 	listener.subscribe(function(message) {
 	var w = message.width;
 	var h = message.height;
@@ -109,6 +129,8 @@ this.drawImage = function(canvas, rgbBuffer, width, height) {
 		}
 	ctx.putImageData(pixels, 0, 0);
 }
+
+
 
 this.getCvmService = function() {
   return new ROSLIB.Service({
@@ -196,9 +218,49 @@ VIPER.getTopics = function(viper) {
 	viper.log("Getting topics...");
 
     topicsClient.callService(request, function(result) {
+		viper.topics = new Map();
 		viper.log('Topics received (', result.topics.length + ')');
-		__instance.topics = result.topics;
-		VIPER.checkStatus(__instance);
+		for (var i = 0; i < result.topics.length; i++)
+			viper.topics.set(result.topics[i], result.types[i]);
+		VIPER.checkStatus(viper);
     });
+}
+
+VIPER.createDefault3DViewer = function(divElement, width, height) {
+	var viewer = new ROS3D.Viewer({
+		divID : divElement,
+		width : width,
+		height : height,
+		antialias : true,
+		background : "#888888"
+	});
+	// Camera
+	viewer.camera.position.set(10, 10, 5);
+	viewer.camera.up = new THREE.Vector3(0, 0, 1);
+	viewer.camera.lookAt(new THREE.Vector3(0, 0, 0));
+
+	var grid = new ROS3D.Grid( {size: 5, color: 0xBBBBBB});
+	viewer.scene.add( grid);
+	//grid = new ROS3D.Grid( {size: 10, color: '#3333BB'});
+	//viewer.scene.add( grid);
+
+	var material = new THREE.LineBasicMaterial({ color: 0x0000ff });
+
+	var geometry = new THREE.Geometry();
+	geometry.vertices.push(new THREE.Vector3(5, 5, 10));
+	geometry.vertices.push(new THREE.Vector3(0, 0, 0));
+	geometry.vertices.push(new THREE.Vector3(-5, 5, 10));
+	geometry.vertices.push(new THREE.Vector3(0, 0, 0));
+	geometry.vertices.push(new THREE.Vector3(5, -5, 10));
+	geometry.vertices.push(new THREE.Vector3(0, 0, 0));
+	geometry.vertices.push(new THREE.Vector3(-5, -5, 10));
+
+	var line = new THREE.Line(geometry, material);
+
+	viewer.scene.add(line);
+
+	line.rotation.y = 3.14/2;
+	line.position.z = 5;
+	return viewer;
 }
 
