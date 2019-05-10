@@ -1,0 +1,89 @@
+﻿ul.tabs
+{
+    padding: 14px 0 8px;
+    margin:0;
+    font-size: 0;
+    list-style-type: none;
+    text-align: left;
+    background-color: #ccc;
+    border:1px solid #CCC;
+    border-bottom:none;
+    border-radius: 2px 2px 0 0;
+}
+
+ul.tabs li
+{
+    display: inline;
+    margin: 0;
+    margin-right: auto;/*distance between tabs*/
+    font: normal 14px Verdana;
+}
+
+ul.tabs li a
+{
+    text-decoration: none;
+    position: relative;
+    padding: 8px 22px;
+    color: #000;
+    border-radius: 3px 3px 0 0;
+    outline:none;
+    font-family: sans-serif;
+}
+
+
+ul.tabs li a:hover
+{
+    text-decoration: underline;
+    color: #000;
+}
+
+ul.tabs li.selected a
+{
+    position: relative;
+    top: 0px;
+    font-weight:bold;
+    background: #FFF;
+    border: 1px solid #AAA;
+    border-bottom: 1px solid #FFF;
+    color: #000;
+}
+
+
+ul.tabs li.selected a:hover, ul.tabs li.selected a:hover
+{
+    text-decoration: none;
+}
+
+div.tabcontents
+{
+    border: 1px solid #CCC; padding: 30px;
+    border-top-color:#AAA;
+    background-color:#FFF;
+    border-radius: 0 0 2px 2px;
+}
+
+div.ip_input
+{
+    border: 1px solid #CCC; padding: 30px;
+    border-top-color:#AAA;
+    background-color:#FFF;
+    border-radius: 0 0 2px 2px;
+}
+
+div.tab {
+    overflow: hidden;
+    border: 1px solid #ccc;
+    background-color: #f1f1f1;
+}
+div.tab button {
+    background-color: inherit;
+    float: right;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 10px 12px;
+    transition: 0.3s;
+}
+div.tab button:hover {
+    background-color: #ddd;
+}
