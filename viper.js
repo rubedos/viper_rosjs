@@ -14,6 +14,9 @@ function VIPER(options) {
 	this.ros_ip = options.viper_ip;
 	this.connected = false;
 	this.ros = null;
+	this.isSimulation = (this.ros_ip == 'localhost');	// For debugging purposes
+	
+	if (this.isSimulation) console.log('Running in simulation mode. Some services may be not available');
 
 
 this.connect = function() {
@@ -55,10 +58,11 @@ this.close = function() {
 	this.connected = false;
     if (this.ros != null)
     {
+	  //this.ros.socket.close();
       this.ros.close();
       this.ros = null;
     }
-	this.log('Closed connection to ' + this.ros_ip);
+	this.log('Closing connection to ' + this.ros_ip);
 }
 
 this.subscribeTopic = function(topic, callback) {
@@ -160,8 +164,6 @@ this.log = function(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10) {
 this.onConnected = function() {}
 this.onDisonnected = function() {}
 
-
-
 }// VIPER
 
 // Privates
@@ -183,28 +185,39 @@ VIPER.checkStatus = function(viper) {
 
 VIPER.getDeviceInfo = function(viper)
 {
-  var cvmAPI = viper.getCvmService();
+	var cvmAPI = viper.getCvmService();
 
-  var request = new ROSLIB.ServiceRequest({
-    'auth' : 'labas', 'cmd' : 'info', 'prm1' : '~', 'prm2' : '~', 'prm3' : '~'
-  });
+	var request = new ROSLIB.ServiceRequest({
+	'auth' : 'labas', 'cmd' : 'info', 'prm1' : '~', 'prm2' : '~', 'prm3' : '~'
+	});
 
-  viper.log('Calling CVM API service: info');
-  cvmAPI.callService(request, function(result) {
-    viper.log('CVM API service responded. RC: '+result.rc);
-    var datetime = "" + new Date().toLocaleString();
-	viper.version = result.version;
-	viper.apps = result.apps;
-	viper.activeApps = result.activeApps;
-	
-	viper.deviceInfo = new Map();
-	for(var i = 0; i < result.info.length; i++) {
-	  var key = result.info[i].substring(0, result.info[i].indexOf("="));
-	  var value = result.info[i].substring(key.length + 1);
-	  viper.deviceInfo.set(key, value);
-    }
-	VIPER.checkStatus(__instance);
-  });
+	if (viper.isSimulation){
+		viper.apps = new Array();
+		viper.apps[0] = { name : 'App1', isActive : true };
+		viper.version = "Emulator";
+		viper.deviceInfo = new Map();
+		viper.deviceInfo.set("VIPER_PREFIX", "VIPER");
+		VIPER.checkStatus(viper);
+	}
+	else
+	{
+		viper.log('Calling CVM API service: info');
+		cvmAPI.callService(request, function(result) {
+		viper.log('CVM API service responded. RC: '+result.rc);
+		var datetime = "" + new Date().toLocaleString();
+		viper.version = result.version;
+		viper.apps = result.apps;
+		viper.activeApps = result.activeApps;
+
+		viper.deviceInfo = new Map();
+		for(var i = 0; i < result.info.length; i++) {
+			var key = result.info[i].substring(0, result.info[i].indexOf("="));
+			var value = result.info[i].substring(key.length + 1);
+			viper.deviceInfo.set(key, value);
+		}
+		VIPER.checkStatus(__instance);
+		});
+	}
 }
 
 VIPER.getTopics = function(viper) {
@@ -235,7 +248,7 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 		background : "#888888"
 	});
 	// Camera
-	viewer.camera.position.set(10, 10, 5);
+	viewer.camera.position.set(-7, -3, 5);
 	viewer.camera.up = new THREE.Vector3(0, 0, 1);
 	viewer.camera.lookAt(new THREE.Vector3(0, 0, 0));
 
@@ -243,6 +256,9 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 	viewer.scene.add( grid);
 	//grid = new ROS3D.Grid( {size: 10, color: '#3333BB'});
 	//viewer.scene.add( grid);
+	
+	var axesHelper = new THREE.AxesHelper( 1 );
+	viewer.scene.add( axesHelper );
 
 	var material = new THREE.LineBasicMaterial({ color: 0x0000ff });
 
@@ -257,7 +273,7 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 
 	var line = new THREE.Line(geometry, material);
 
-	viewer.scene.add(line);
+	//viewer.scene.add(line);
 
 	line.rotation.y = 3.14/2;
 	line.position.z = 5;
