@@ -2,7 +2,7 @@
 <html>
 
 <head>
-	<title>Laser Scan. VIPER ROSJS</title>
+	<title>Point Cloud. VIPER ROSJS</title>
 	<meta charset="utf-8" />
 	<script src="3rdparty/three.js"></script>
 	<script src="3rdparty/eventemitter2.js"></script>
@@ -11,19 +11,27 @@
 	<script src="3rdparty/base64-binary.js"></script>
 	<script src="viper.js" type="text/javascript"></script>
 	<script src="3rdparty/WebGL.js"></script>
+	
     <script>
-		/** This example demonstrates laser scan created from 3D pointcloud
+		/** This example demonstrates 3D pointcloud reading from VIPER. 
+			REMARK: Reading points directly is a lot of data to transfer and thus not a very good performance. It is recommended to 
+			read Disparity(depth map) and RGB image, and then transform them to pointcloud
 		 */
 		if ( WEBGL.isWebGLAvailable() === false ) {
 			document.body.appendChild( WEBGL.getWebGLErrorMessage() );
 		} 
-		var viper = null; 		// viper handle
-		var sub = null;			// subscription handle
-		var laserScan = null;	// Laser scan group
+		var viper = null; 	// viper handle
+		var sub = null;		// subscription handle
+		var cloud = null; 	// pointcloud model
+		var viewer = null;	// 3d viewer
 		function onload() {
-			var viewer = VIPER.createDefault3DViewer('viewer', 800, 600);
-			laserScan = new THREE.Group();
-			viewer.scene.add(laserScan);
+			viewer = VIPER.createDefault3DViewer('viewer', 800, 600);
+		}
+		
+		function init(w, h){
+			var amount = w * h;
+			cloud = viper.createPointCloud3D(w, h);
+			viewer.scene.add(cloud);
 		}
 
 		function connect() {
@@ -36,62 +44,18 @@
 		// Callback invoked when connected to viper
 		function onConnected() {
 			var namespace = viper.deviceInfo.get("VIPER_PREFIX");
-			var topic = '/' + namespace + '/laser_scan';
-			sub = viper.subscribeTopic(topic, function(msg){
+			var topic = '/' + namespace + '/points2';
+			sub = viper.subscribePoints(topic, function(buffer, w, h){
 				countFrames();
-				onScanUpdate(msg);
+				if (cloud == null) init(w, h);
+				// TODO: here process points or just render them:
+				viper.updatePointsBuffer(buffer, cloud, w, h);
 			});
 		}
-		var maxray = 50;
-		function onScanUpdate(lsMsg){
-			var maxLs = lsMsg.range_max;
-			var minLs = lsMsg.range_min;
-			var angle = lsMsg.angle_min;
-			var origin = new THREE.Vector3(0, 0, 0);
-			var geometry = new THREE.Geometry();
-			geometry.vertices.push(origin);
-			var phase = Math.floor((new Date()).getMilliseconds()/ 100) % 3; // just for laser beam animation
-
-			for (var i = 0; i < lsMsg.ranges.length + 1; i++){
-				var ray;
-				var nextPoint = new THREE.Vector3();
-				var nextInfinity = false;
-				if (i == lsMsg.ranges.length)
-				{
-				  nextPoint = origin;
-				}
-				else
-				{
-				  nextInfinity = !isFinite(lsMsg.ranges[i]);
-				  if (nextInfinity)
-					ray = maxray;
-				  else
-					ray = lsMsg.ranges[i];
-				  nextPoint = new THREE.Vector3(( Math.cos(angle) * ray) + origin.x, ( Math.sin(angle) * ray) + origin.y,  + origin.z);
-				}
-				var beamW = 0.01;
-				geometry.vertices.push(nextPoint);
-				if (i%3 == phase)
-				{
-					var length = nextPoint.length() > 0.01 ? nextPoint.length() : 0.01;
-					var minPoint = nextPoint.clone().multiplyScalar( (0.01/ length));
-					geometry.vertices.push(minPoint);
-					geometry.vertices.push(nextPoint);
-				}
-				prevInfinity = nextInfinity;
-				prevPoint = nextPoint;
-				angle += lsMsg.angle_increment;
-			}
-			var material = new THREE.LineBasicMaterial({ color: 0x00aa00 });
-			var line = new THREE.Line(geometry, material);
-			laserScan.children.length = 0;
-			laserScan.add(line);
-		}
-		
 		
 		// Close subscriptions and connections
 		function finalize() {
-			sub.unsubscribe();
+			stopVideoStream();
 			viper.close();
 		}
 		

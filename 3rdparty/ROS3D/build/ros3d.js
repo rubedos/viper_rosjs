@@ -55777,7 +55777,7 @@ class Viewer {
    *  *                           panning/zooming. Only has effect when
    *  *                           displayPanAndZoomFrame is set to true.
    */
-  constructor(options) {
+  constructor(options, renderer) {
     options = options || {};
     var divID = options.divID;
     var width = options.width;
@@ -55793,20 +55793,23 @@ class Viewer {
       y : 3,
       z : 3
     };
+	this.renderer = renderer;
     var cameraZoomSpeed = options.cameraZoomSpeed || 0.5;
     var displayPanAndZoomFrame = (options.displayPanAndZoomFrame === undefined) ? true : !!options.displayPanAndZoomFrame;
     var lineTypePanAndZoomFrame = options.lineTypePanAndZoomFrame || 'full';
 
-    // create the canvas to render to
-    this.renderer = new THREE$1.WebGLRenderer({
-      antialias : antialias,
-      alpha: true
-    });
-    this.renderer.setClearColor(parseInt(background.replace('#', '0x'), 16), alpha);
-    this.renderer.sortObjects = false;
-    this.renderer.setSize(width, height);
-    this.renderer.shadowMap.enabled = false;
-    this.renderer.autoClear = false;
+	if (this.renderer == null) {
+		// create the canvas to render to
+		this.renderer = new THREE.WebGLRenderer({
+		  antialias : antialias,
+		  alpha: true
+		});
+	}
+	this.renderer.setClearColor(parseInt(background.replace('#', '0x'), 16), alpha);
+	this.renderer.sortObjects = false;
+	this.renderer.setSize(width, height);
+	this.renderer.shadowMap.enabled = false;
+	this.renderer.autoClear = false;
 
     // create the global scene
     this.scene = new THREE$1.Scene();

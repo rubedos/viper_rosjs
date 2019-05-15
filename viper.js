@@ -65,13 +65,18 @@ this.close = function() {
 	this.log('Closing connection to ' + this.ros_ip);
 }
 
-this.subscribeTopic = function(topic, callback) {
-	__instance.log('Subscribing to topic ', topic);
+this.getTopicType = function(topic) {
 	if (this.topics == null) throw "Topic list is empty";
 	var type = null;
 	for (var [ttopic, ttype] of __instance.topics)
 		if (ttopic == topic) type = ttype;
 	if (type == null) throw 'Topic ' + topic + ' type is unknown';
+	return type;
+}
+
+this.subscribeTopic = function(topic, callback) {
+	__instance.log('Subscribing to topic ', topic);
+	var type = this.getTopicType(topic)
 	var listener = new ROSLIB.Topic({
 		ros : __instance.ros,
 		name : topic,
@@ -92,22 +97,94 @@ this.subscribeTopic = function(topic, callback) {
  @return subscription listener
  */
 this.subscribeImage = function(topic, callback){
-	__instance.log('Subscribing to topic ', topic);
+	__instance.log('Subscribing to Image topic ', topic);
+	var type = this.getTopicType(topic)
 	var listener = new ROSLIB.Topic({
 		ros : __instance.ros,
 		name : topic,
-		messageType : 'sensor_msgs/Image',
+		messageType : type,
 		queue_size : 1
 	});
 	//listeners.set(listener.name, callback);
 	listener.subscribe(function(message) {
-	var w = message.width;
-	var h = message.height;
-	var buffer = new Uint8Array(Base64Binary.decodeArrayBuffer(message.data));
-	callback(buffer, w, h);
+		var w = message.width;
+		var h = message.height;
+		var buffer = new Uint8Array(Base64Binary.decodeArrayBuffer(message.data));
+		callback(buffer, w, h);
   });
 
   return listener;
+}
+
+/** Subscribe to points topic and sends updated points data to given callback.
+ Function returns listener which is a handle to call unsubscribe when finished streaming.
+ @param topic - the name of points topic
+ @param callback(pointsBuffer, width, height) - a function to be called with updated image data (http://docs.ros.org/melodic/api/sensor_msgs/html/msg/PointCloud2.html buffer as DataView, point array width, point array height).
+ @return subscription listener
+ */
+this.subscribePoints = function(topic, callback) {
+	__instance.log('Subscribing to Points topic ', topic);
+	var type = this.getTopicType(topic)
+	var listener = new ROSLIB.Topic({
+		ros : __instance.ros,
+		name : topic,
+		messageType : type,
+		queue_size : 1
+	});
+	listener.subscribe(function(message) {
+		var w = message.width;
+		var h = message.height;
+		var buffer = new DataView(Base64Binary.decodeArrayBuffer(message.data));
+		callback(buffer, w, h);
+  });
+  return listener;
+}
+/** Creates THREE JS buffer structure to store pointcloud model for rendering.
+ */
+this.createPointCloud3D = function(width, height) {
+	var numPoints = width * height;
+
+	var positions = new Float32Array( numPoints * 3 );
+	var scales = new Float32Array( numPoints );
+	var colors = new Float32Array( numPoints * 3 );
+
+	var i = 0, j = 0;
+
+	for ( var iy = 0; iy < height; iy ++ ) {
+		for ( var ix = 0; ix < width; ix ++ ) {
+
+			positions[ i ] = 0;
+			positions[ i + 1 ] = 0; 
+			positions[ i + 2 ] = 0;
+
+			scales[ j ] = 0.01;
+			colors[i] = 0;
+			colors[i + 1] = 0;
+			colors[i + 2] = 0;
+
+			i += 3;
+			j ++;
+		}
+	}
+
+	var geometry = new THREE.BufferGeometry();
+	geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+	geometry.addAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
+
+	var material = new THREE.ShaderMaterial( {
+		uniforms: {
+			color: { value: new THREE.Color( 0xffffff ) },
+		},
+		vertexShader: VIPER.pointCloudVertexShader()
+		,vertexColors: true
+		,fragmentShader: VIPER.pointCloudFragmentShader()
+
+	} );
+
+	//
+
+	points = new THREE.Points( geometry, material );
+	return points;
 }
 
 /** Renders received image buffer onto canvas element
@@ -134,7 +211,46 @@ this.drawImage = function(canvas, rgbBuffer, width, height) {
 	ctx.putImageData(pixels, 0, 0);
 }
 
-
+/** This function uses ros PointCloud2 buffer data to update 3d model of the pointcloud
+ */
+this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h) {
+	var positions = points3DBuffer.geometry.attributes.position.array;
+	var colors = points3DBuffer.geometry.attributes.color.array;
+	var point_step = 32; 				// Received from PointCloud2 structure
+	var row_step = w * point_step; 	// Received from PointCloud2 structure
+	for (var j = 0; j < h; j++)
+		for (var i = 0; i < w; i ++)
+		{
+			var ip = (j * w + i)*3;
+			var ix = j * row_step + i*point_step;
+			var x = rosBuffer.getFloat32(ix, true);
+			var y = rosBuffer.getFloat32(ix + 4, true);
+			var z = rosBuffer.getFloat32(ix + 8, true);
+			var r = rosBuffer.getUint8(ix + 16);
+			var g = rosBuffer.getUint8(ix + 17);
+			var b = rosBuffer.getUint8(ix + 18);
+			if (isFinite(x) && x > 1 && !isNaN(x) && ! isNaN(y) && !isNaN(z))
+			{
+				if (x > 5) x = 5;
+				positions[ip] = x; 
+				positions[ip + 1] = y; 
+				positions[ip + 2] = z; 
+				// NOTE: BGR to RGB transform
+				colors[ip + 2] = r/255; 
+				colors[ip + 1] = g/255; 
+				colors[ip] = b/255; 
+			}
+			else 
+			{
+				positions[ip] = 0; 
+				positions[ip + 1] = 0; 
+				positions[ip + 2] = 0; 
+			}
+			
+		}
+	points3DBuffer.geometry.attributes.position.needsUpdate = true;
+	points3DBuffer.geometry.attributes.color.needsUpdate = true;
+}
 
 this.getCvmService = function() {
   return new ROSLIB.Service({
@@ -162,7 +278,7 @@ this.log = function(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10) {
 
 // Events
 this.onConnected = function() {}
-this.onDisonnected = function() {}
+this.onDisconnected = function() {}
 
 }// VIPER
 
@@ -246,7 +362,8 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 		height : height,
 		antialias : true,
 		background : "#888888"
-	});
+	}, new THREE.WebGLRenderer( { antialias: true, alpha: true } )
+	);
 	// Camera
 	viewer.camera.position.set(-7, -3, 5);
 	viewer.camera.up = new THREE.Vector3(0, 0, 1);
@@ -280,3 +397,25 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 	return viewer;
 }
 
+VIPER.pointCloudVertexShader = function() {
+	return `
+	varying vec3 vColor;
+	void main() {
+		vColor = color;
+		vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+		gl_PointSize = 1.0;//scale * ( 300.0 / - mvPosition.z );
+		gl_Position = projectionMatrix * mvPosition;
+
+			}
+	`
+}
+
+VIPER.pointCloudFragmentShader = function() {
+	return `
+	varying vec3 vColor;
+	void main() {
+		if ( length( gl_PointCoord - vec2( 0.5, 0.5 ) ) > 0.475 ) discard;
+		gl_FragColor = vec4( vColor.x, vColor.y, vColor.z, 1.0 );
+		}
+	`
+}

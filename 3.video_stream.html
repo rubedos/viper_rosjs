@@ -30,7 +30,6 @@
 			var canvas = document.getElementById('viewCanvas');
 			sub = viper.subscribeImage(topic, function(rgb, width, height){
 				countFrames();
-				document.getElementById("fps_label").innerText = 'Render FPS: ' + Number((fps).toFixed(1));
 				console.log('Received image from topic ', sub.name, '; ' + width + ' x ' + height);
 				viper.drawImage(canvas, rgb, width, height);
 			});
@@ -50,20 +49,21 @@
 		var lastCalledTime;
 		var fps;
 		function countFrames() {
-		  if(!lastCalledTime) {
-			 lastCalledTime = Date.now();
-			 fps = 0;
+			if(!lastCalledTime) {
+				lastCalledTime = Date.now();
+				fps = 0;
 			 return;
-		  }
-		  delta = (Date.now() - lastCalledTime)/1000;
-		  lastCalledTime = Date.now();
-		  fps = 1/delta;
+			}
+			delta = (Date.now() - lastCalledTime)/1000;
+			lastCalledTime = Date.now();
+			fps = 1/delta;
+			document.getElementById("fps_label").innerText = 'Render FPS: ' + Number((fps).toFixed(1));
 		}
 	</script>
 </head>
 <body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
+	<p><div style="color:darkgray;size:small">Hint: open javascript console for more information...</div></p>
 	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();">Connect</button></div>
-	<div>Open javascript console for more information...</div>
 	<table>
 	<tr>
 		<td style="text-align: right;">
