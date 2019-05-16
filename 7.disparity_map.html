@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Disparity Map. VIPER ROSJS</title>
+  <meta charset="utf-8" />
+  <script src="3rdparty/eventemitter2.js"></script>
+  <script src="3rdparty/roslib.js"></script>
+  <script src="3rdparty/base64-binary.js"></script>
+  <script src="viper.js" type="text/javascript"></script>
+    <script>
+		/** This example demonstrated how to subscribe to special type of topic - RGB image stream and render it in canvas element
+		 */
+		var viper = null; 	// viper handle
+		var sub = null;		// subscription handle
+		function onload() {
+		}
+
+		function connect() {
+			var ip = document.getElementById('viper_ip').value;
+			viper = new VIPER({viper_ip : ip});
+			viper.onConnected = onConnected;
+			viper.connect();
+		}
+		
+		// Callback invoked when connected to viper
+		function onConnected() {
+			var namespace = viper.deviceInfo.get("VIPER_PREFIX");
+			var topic = '/' + namespace + '/stereo/disparity';
+			var rgbCanvas = document.getElementById('rgbView');
+			var disparityCanvas = document.getElementById('disparityView');
+			sub = viper.subscribeStereoimage(topic, function(data){
+				countFrames();
+				console.log('Received image from topic ', sub.name, '; ' + data.width + ' x ' + data.height);
+				viper.drawImage(rgbCanvas, data.rgb, data.width, data.height);
+				viper.drawDisparity(disparityCanvas, data);
+			});
+		}
+		
+		// Close subscriptions and connections
+		function finalize() {
+			sub.unsubscribe();
+			viper.close();
+		}
+		
+		// Cancel subscription
+		function stopVideoStream() {
+			sub.unsubscribe();
+		}
+		
+		var lastCalledTime;
+		var fps;
+		function countFrames() {
+			if(!lastCalledTime) {
+				lastCalledTime = Date.now();
+				fps = 0;
+			 return;
+			}
+			delta = (Date.now() - lastCalledTime)/1000;
+			lastCalledTime = Date.now();
+			fps = 1/delta;
+			document.getElementById("fps_label").innerText = 'Render FPS: ' + Number((fps).toFixed(1));
+		}
+	</script>
+</head>
+<body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
+	<p><div style="color:darkgray;size:small">Hint: open javascript console for more information...</div></p>
+	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();">Connect</button></div>
+	<table>
+	<tr>
+		<td style="text-align: right;">
+			<button style="padding-right:20px; padding-left:20px;" onclick="stopVideoStream();">Stop</button>
+		</td>
+		<td style="width:150px"><div id="fps_label"/></td>
+	</tr>
+	</table>
+	<div>
+		<canvas id="rgbView"/>
+	</div>
+	<div>
+		<canvas id="disparityView"/>
+	</div>
+</body>
+
+</html>

@@ -135,6 +135,31 @@ this.subscribeImage = function(topic, callback){
   return listener;
 }
 
+this.subscribeStereoimage = function(topic, callback){
+	__instance.log('Subscribing to Stereoimage topic ', topic);
+	var type = this.getTopicType(topic)
+	var listener = new ROSLIB.Topic({
+		ros : __instance.ros,
+		name : topic,
+		messageType : type,
+		queue_size : 1
+	});
+	//listeners.set(listener.name, callback);
+	listener.subscribe(function(message) {
+		var w = message.leftImage.width;
+		var h = message.leftImage.height;
+		var rgbBuffer = new Uint8Array(Base64Binary.decodeArrayBuffer(message.leftImage.data));
+		
+		var focal = message.disparityImage.f;
+		var baseline = message.disparityImage.T;
+		var disparityBuffer = new DataView(Base64Binary.decodeArrayBuffer(message.disparityImage.image.data));
+		callback({rgb:rgbBuffer, disparity: disparityBuffer, width: w, height: h, focal: focal, baseline: baseline, 
+			dispMin: message.disparityImage.min_disparity, dispMax: message.disparityImage.max_disparity});
+  });
+
+  return listener;
+}
+
 /** Subscribe to points topic and sends updated points data to given callback.
  Function returns listener which is a handle to call unsubscribe when finished streaming.
  @param topic - the name of points topic
@@ -226,6 +251,38 @@ this.drawImage = function(canvas, rgbBuffer, width, height) {
 			pixels.data[pi+1] = g;
 			pixels.data[pi+2] = b;
 			pixels.data[pi+3] = 255;	// alpha
+		}
+	ctx.putImageData(pixels, 0, 0);
+}
+
+/** Renders received disparity buffer onto canvas element
+ */
+this.drawDisparity = function(canvas, data) {
+	canvas.width = data.width;
+	canvas.height = data.height;
+	var ctx = canvas.getContext('2d');
+	var pixels = ctx.getImageData(0,0, data.width, data.height);
+	for (var y = 0; y < data.height; y++)
+		for (var x = 0; x < data.width; x++)
+		{
+			var i = (y * data.width + x) * 4;  // 1 float (4 bytes) per pixel 
+			var pi = (y * data.width + x) * 4; // 4 bytes per pixel 
+			var disp = data.disparity.getFloat32(i, true);
+			if (disp > 0)
+			{
+				var val = (disp/(data.dispMax - data.dispMin) - data.dispMin)*255;
+				pixels.data[pi] = val;
+				pixels.data[pi+1] = val;
+				pixels.data[pi+2] = val;
+				pixels.data[pi+3] = 255;	// alpha
+			}
+			else
+			{
+				pixels.data[pi] = 100;
+				pixels.data[pi+1] = 0;
+				pixels.data[pi+2] = 0;
+				pixels.data[pi+3] = 255;	// alpha
+			}
 		}
 	ctx.putImageData(pixels, 0, 0);
 }
@@ -370,6 +427,7 @@ VIPER.getTopics = function(viper) {
 		viper.log('Topics received (', result.topics.length + ')');
 		for (var i = 0; i < result.topics.length; i++)
 			viper.topics.set(result.topics[i], result.types[i]);
+		viper.topics = new Map([...viper.topics].sort((a, b) => a[0] < b[0]? -1 : 1));
 		VIPER.checkStatus(viper);
     });
 }
