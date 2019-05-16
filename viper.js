@@ -2,7 +2,7 @@
  * @author Henrikas Simonavičius / henrikas.simonavicius@rubedos.com
  * @author Rubedos / http://www.rubedos.com
  */
-
+//import { OrbitControls } from '3rdparty/controls/OrbitControls.js';
 
 var __instance = null;
 var cvmAPIservice = "/configurator/cvmapi";
@@ -72,6 +72,25 @@ this.getTopicType = function(topic) {
 		if (ttopic == topic) type = ttype;
 	if (type == null) throw 'Topic ' + topic + ' type is unknown';
 	return type;
+}
+
+/** Publishes message to specified topic. 
+	@param topic - the name of the topic
+	@param data - topic messate data part.
+ */
+this.publishTopic = function(topic, msg, latched) {
+	this.log("Publishing to topic '" + topic + "'");
+	var type = this.getTopicType(topic)
+	var topicHandle = new ROSLIB.Topic({
+		ros: this.ros,
+		name: topic, 
+		messageType: type,
+		latched: latched
+	});
+	/*var msgTransport = new ROSLIB.Message({
+		data: data
+	}); */
+	topicHandle.publish(msg);
 }
 
 this.subscribeTopic = function(topic, callback) {
@@ -232,9 +251,9 @@ this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h) {
 			if (isFinite(x) && x > 1 && !isNaN(x) && ! isNaN(y) && !isNaN(z))
 			{
 				if (x > 5) x = 5;
-				positions[ip] = x; 
-				positions[ip + 1] = y; 
-				positions[ip + 2] = z; 
+				positions[ip] = y; 
+				positions[ip + 1] = z; 
+				positions[ip + 2] = x; 
 				// NOTE: BGR to RGB transform
 				colors[ip + 2] = r/255; 
 				colors[ip + 1] = g/255; 
@@ -355,24 +374,32 @@ VIPER.getTopics = function(viper) {
     });
 }
 
+
 VIPER.createDefault3DViewer = function(divElement, width, height) {
-	var viewer = new ROS3D.Viewer({
+	var viewer = new ViperViewer({
+	//new ROS3D.Viewer({
 		divID : divElement,
 		width : width,
 		height : height,
 		antialias : true,
-		background : "#888888"
-	}, new THREE.WebGLRenderer( { antialias: true, alpha: true } )
-	);
+		background : "#888888",
+		displayPanAndZoomFrame: true,
+		lineTypePanAndZoomFrame: 'full'
+	});
+	
 	// Camera
-	viewer.camera.position.set(-7, -3, 5);
-	viewer.camera.up = new THREE.Vector3(0, 0, 1);
+	viewer.camera.position.set(4, 3, -5);
+	viewer.camera.up = new THREE.Vector3(0, 1, 0);
 	viewer.camera.lookAt(new THREE.Vector3(0, 0, 0));
+	
+	viewer.cameraControls.screenSpacePanning = true;
+	viewer.cameraControls.enableKeys = true;
 
-	var grid = new ROS3D.Grid( {size: 5, color: 0xBBBBBB});
-	viewer.scene.add( grid);
-	//grid = new ROS3D.Grid( {size: 10, color: '#3333BB'});
-	//viewer.scene.add( grid);
+	var minorGrid = new THREE.GridHelper(10, 50, 0xDDDDDD, 0x999999);
+	viewer.scene.add( minorGrid);
+	minorGrid.position.y = -0.01;
+	var majorGrid = new THREE.GridHelper(20, 20, 0xDDDDDD, 0x777777);
+	viewer.scene.add( majorGrid);
 	
 	var axesHelper = new THREE.AxesHelper( 1 );
 	viewer.scene.add( axesHelper );
@@ -391,7 +418,9 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 	var line = new THREE.Line(geometry, material);
 
 	//viewer.scene.add(line);
-
+	//var directionalLight = new THREE.DirectionalLight( 0xffffff, 0.5 );
+	//viewer.scene.add( directionalLight );
+	
 	line.rotation.y = 3.14/2;
 	line.position.z = 5;
 	return viewer;
@@ -418,4 +447,134 @@ VIPER.pointCloudFragmentShader = function() {
 		gl_FragColor = vec4( vColor.x, vColor.y, vColor.z, 1.0 );
 		}
 	`
+}
+
+class ViperViewer
+{
+	
+	constructor(options) {
+		options = options || {};
+		var divID = options.divID;
+		var width = options.width;
+		var height = options.height;
+		var background = options.background || '#111111';
+		var antialias = options.antialias;
+		var intensity = options.intensity || 0.66;
+		var near = options.near || 0.01;
+		var far = options.far || 1000;
+		var alpha = options.alpha || 1.0;
+		var cameraPosition = options.cameraPose || {
+		  x : 3,
+		  y : 3,
+		  z : 3
+		};
+		var cameraZoomSpeed = options.cameraZoomSpeed || 0.5;
+		var displayPanAndZoomFrame = (options.displayPanAndZoomFrame === undefined) ? true : !!options.displayPanAndZoomFrame;
+		var lineTypePanAndZoomFrame = options.lineTypePanAndZoomFrame || 'full';
+
+		if (this.renderer == null) {
+			// create the canvas to render to
+			this.renderer = new THREE.WebGLRenderer({
+			  antialias : antialias,
+			  alpha: true
+			});
+		}
+		this.renderer.setClearColor(parseInt(background.replace('#', '0x'), 16), alpha);
+		this.renderer.sortObjects = false;
+		this.renderer.setSize(width, height);
+		this.renderer.shadowMap.enabled = false;
+		this.renderer.autoClear = false;
+
+		// create the global scene
+		this.scene = new THREE.Scene();
+
+		// create the global camera
+		this.camera = new THREE.PerspectiveCamera(40, width / height, near, far);
+		this.camera.position.x = cameraPosition.x;
+		this.camera.position.y = cameraPosition.y;
+		this.camera.position.z = cameraPosition.z;
+		// add controls to the camera
+		this.cameraControls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+		this.cameraControls.userZoomSpeed = cameraZoomSpeed;
+
+		// lights
+		this.scene.add(new THREE.AmbientLight(0x555555));
+		this.directionalLight = new THREE.DirectionalLight(0xffffff, intensity);
+		this.scene.add(this.directionalLight);
+		this.directionalLight.position.x = -0.3;
+		this.directionalLight.position.z = -0.2;
+		this.ambientLight = new THREE.AmbientLight( 0x404040 ); // soft white light
+		this.scene.add( this.ambientLight );
+
+		// propagates mouse events to three.js objects
+		this.selectableObjects = new THREE.Object3D();
+		this.scene.add(this.selectableObjects);
+		/*var mouseHandler = new MouseHandler({
+		  renderer : this.renderer,
+		  camera : this.camera,
+		  rootObject : this.selectableObjects,
+		  fallbackTarget : this.cameraControls
+		});
+
+		// highlights the receiver of mouse events
+		this.highlighter = new Highlighter({
+		  mouseHandler : mouseHandler
+		});*/
+
+		this.stopped = true;
+		this.animationRequestId = undefined;
+
+		// add the renderer to the page
+		document.getElementById(divID).appendChild(this.renderer.domElement);
+		
+		// begin the render loop
+		this.start();
+	}
+	
+	  /**
+   *  Start the render loop
+   */
+	start(){
+		this.stopped = false;
+		this.draw();
+	};
+
+	/**
+	* Renders the associated scene to the viewer.
+	*/
+	draw(){
+		if(this.stopped){
+		  // Do nothing if stopped
+		  return;
+		}
+
+		// update the controls
+		this.cameraControls.update();
+
+		// put light to the top-left of the camera
+		// BUG: position is a read-only property of DirectionalLight,
+		// attempting to assign to it either does nothing or throws an error.
+		//this.directionalLight.position = this.camera.localToWorld(new THREE.Vector3(-1, 1, 0));
+		this.directionalLight.position.normalize();
+
+		// set the scene
+		this.renderer.clear(true, true, true);
+		this.renderer.render(this.scene, this.camera);
+		//this.highlighter.renderHighlights(this.scene, this.renderer, this.camera);
+
+		// draw the frame
+		this.animationRequestId = requestAnimationFrame(this.draw.bind(this));
+	};
+
+	/**
+	*  Stop the render loop
+	*/
+	stop(){
+		if(!this.stopped){
+		  // Stop animation render loop
+		  cancelAnimationFrame(this.animationRequestId);
+		}
+		this.stopped = true;
+	};
+
 }

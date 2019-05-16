@@ -5,6 +5,7 @@
 	<title>Laser Scan. VIPER ROSJS</title>
 	<meta charset="utf-8" />
 	<script src="3rdparty/three.js"></script>
+	<script src="3rdparty/controls/OrbitControls.js"></script>
 	<script src="3rdparty/eventemitter2.js"></script>
 	<script src="3rdparty/roslib.js"></script>
 	<script src="3rdparty/ROS3D/build/ros3d.js"></script>
@@ -67,7 +68,7 @@
 					ray = maxray;
 				  else
 					ray = lsMsg.ranges[i];
-				  nextPoint = new THREE.Vector3(( Math.cos(angle) * ray) + origin.x, ( Math.sin(angle) * ray) + origin.y,  + origin.z);
+				  nextPoint = new THREE.Vector3(( Math.sin(angle) * ray) + origin.x,  origin.y, ( Math.cos(angle) * ray) + origin.z);
 				}
 				var beamW = 0.01;
 				geometry.vertices.push(nextPoint);
