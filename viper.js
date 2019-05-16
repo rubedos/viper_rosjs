@@ -270,6 +270,9 @@ this.drawDisparity = function(canvas, data) {
 			var disp = data.disparity.getFloat32(i, true);
 			if (disp > 0)
 			{
+				r = data.rgb[i];
+				g = data.rgb[i+1];
+				b = data.rgb[i+2];
 				var val = (disp/(data.dispMax - data.dispMin) - data.dispMin)*255;
 				pixels.data[pi] = val;
 				pixels.data[pi+1] = val;
@@ -285,6 +288,50 @@ this.drawDisparity = function(canvas, data) {
 			}
 		}
 	ctx.putImageData(pixels, 0, 0);
+}
+
+/** Converts RGB + D maps to pointcloud for rendering
+ @param data - decoded message received from VIPER containing RGB and Disparity buffers
+ @param points3DBuffer - structure for pointcloud rendering 
+ */
+this.rgbdToCloud = function(data, points3DBuffer) {
+	var positions = points3DBuffer.geometry.attributes.position.array;
+	var colors = points3DBuffer.geometry.attributes.color.array;
+	// NOTE: principal point should come from calibrated camera info
+	var principalX = data.width /2;
+	var principalY = data.height /2;
+	for (var y = 0; y < data.height; y++)
+		for (var x = 0; x < data.width; x++)
+		{
+			var ip = (y * data.width + x)*3;
+			var i = (y * data.width + x) * 4;  // 1 float (4 bytes) per pixel 
+			var disp = data.disparity.getFloat32(i, true);
+			if (disp > 0)
+			{
+				cz = data.focal * data.baseline / (disp);
+				var u = principalX - x;
+				var v = principalY - y;
+				var cx = u * cz / data.focal;
+				var cy = v * cz / data.focal;
+				r = data.rgb[ip];
+				g = data.rgb[ip + 1];
+				b = data.rgb[ip + 2];
+				positions[ip] = cx; 
+				positions[ip + 1] = cy; 
+				positions[ip + 2] = cz; 
+				colors[ip] = r/255; 
+				colors[ip + 2] = b/255; 
+				colors[ip + 1] = g/255; 
+			}
+			else
+			{
+				positions[ip] = 0; 
+				positions[ip + 1] = 0; 
+				positions[ip + 2] = 0; 
+			}
+		}
+	points3DBuffer.geometry.attributes.position.needsUpdate = true;
+	points3DBuffer.geometry.attributes.color.needsUpdate = true;
 }
 
 /** This function uses ros PointCloud2 buffer data to update 3d model of the pointcloud
@@ -307,7 +354,7 @@ this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h) {
 			var b = rosBuffer.getUint8(ix + 18);
 			if (isFinite(x) && x > 1 && !isNaN(x) && ! isNaN(y) && !isNaN(z))
 			{
-				if (x > 5) x = 5;
+				if (x > 20) x = 20;
 				positions[ip] = y; 
 				positions[ip + 1] = z; 
 				positions[ip + 2] = x; 
@@ -487,10 +534,11 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 VIPER.pointCloudVertexShader = function() {
 	return `
 	varying vec3 vColor;
+	
 	void main() {
 		vColor = color;
 		vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
-		gl_PointSize = 1.0;//scale * ( 300.0 / - mvPosition.z );
+		gl_PointSize = 2.0;
 		gl_Position = projectionMatrix * mvPosition;
 
 			}

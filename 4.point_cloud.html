@@ -25,6 +25,10 @@
 		var sub = null;		// subscription handle
 		var cloud = null; 	// pointcloud model
 		var viewer = null;	// 3d viewer
+		// Select one of the pointcloud delivery methods:
+		var subscribeFunction 	 = subscribeDisparity;
+								//= subscribePoints;
+		var namespace;
 		function onload() {
 			viewer = VIPER.createDefault3DViewer('viewer', 800, 600);
 		}
@@ -44,14 +48,28 @@
 		
 		// Callback invoked when connected to viper
 		function onConnected() {
-			var namespace = viper.deviceInfo.get("VIPER_PREFIX");
-			var topic = '/' + namespace + '/points2';
-			sub = viper.subscribePoints(topic, function(buffer, w, h){
+			namespace = viper.deviceInfo.get("VIPER_PREFIX");
+			subscribeFunction();
+		}
+		
+		function subscribePoints() {
+			sub = viper.subscribePoints('/' + namespace + '/points2', 
+			function(buffer, w, h){
 				countFrames();
 				if (cloud == null) init(w, h);
 				// TODO: here process points or just render them:
 				viper.updatePointsBuffer(buffer, cloud, w, h);
-			});
+			});		
+		}
+		
+		function subscribeDisparity() {
+			sub = viper.subscribeStereoimage('/' + namespace + '/stereo/disparity', 
+				function(data){
+					countFrames();
+					if (cloud == null) init(data.width, data.height);
+					// TODO: here process points or just render them:
+					viper.rgbdToCloud(data, cloud);
+			});		
 		}
 		
 		// Close subscriptions and connections
