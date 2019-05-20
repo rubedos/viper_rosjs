@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Dynamic Configuration. VIPER ROSJS</title>
+  <meta charset="utf-8" />
+  <script src="3rdparty/eventemitter2.js"></script>
+  <script src="3rdparty/roslib.js"></script>
+  <script src="3rdparty/base64-binary.js"></script>
+  <script src="viper.js" type="text/javascript"></script>
+    <script>
+		/** This example demonstrated how to initialize connection to VIPER and then read device information like topics,
+		applications, version etc.
+		 */
+		var viper = null;
+		function onload() {
+
+		}
+		
+		function connect() {
+			var ip = document.getElementById('viper_ip').value;
+			viper = new VIPER({viper_ip : ip});
+			viper.log = myLog;
+			viper.onConnected = onConnected;
+			viper.connect();
+		}
+		
+		function onConnected() {
+			viper.log('Is connected: ', viper.connected);
+			viper.log('VIPER version is ', viper.version);
+			var namespace = viper.deviceInfo.get("VIPER_PREFIX");
+			viper.log('Namespace: ', namespace);
+			viper.log('');
+			// Print all parameters
+			for (var [ttopic, config] of viper.dynamicConfig) {
+				viper.log(config.node, ': ');
+				for (var param of config.getAllValues())
+					viper.log('&nbsp;&nbsp;', param.name, ': ', param.value);
+			}
+			
+			// Change something
+			var cfg, param;
+			cfg = viper.getConfigNode('/' + namespace + '/cvm_description/parent_link');
+			param = cfg.getParameter('position_x');
+			viper.log(cfg.node, '/', param.name, ' is ', param.value);
+			viper.setParameter(cfg.node, param.name, 1.5);
+		}
+		
+		function finalize() {
+			viper.close();
+		}
+		
+		/** Overriding default logging function with the one that ouputs log directly to page.
+		 */
+		function myLog(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10) {
+			var myConsole = document.getElementById('myConsole');
+			var t = new Date();
+			var line = '<div>[' + t.getHours() + ':' + t.getMinutes() + ':' + t.getSeconds() + ']: ' 
+				+ (m1 == null? "":m1) + (m2 == null? "":m2) + (m3 == null? "":m3) + (m4 == null? "":m4)	+ (m5 == null? "":m5)+ (m6 == null? "":m6)+ (m7 == null? "":m7)+ (m8 == null? "":m8)+ (m9 == null? "":m9)+ (m10 == null? "":m10) + '</div>';
+			myConsole.insertAdjacentHTML('beforeend', line);
+		}
+	</script>
+</head>
+<body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
+</body>
+	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();">Connect</button></div>
+	<div id="myConsole"></div>
+</html>

@@ -19,6 +19,8 @@ function VIPER(options) {
 	if (this.isSimulation) console.log('Running in simulation mode. Some services may be not available');
 
 
+/** Connects to viper device
+ */
 this.connect = function() {
   if (!this.connected)
   {
@@ -135,6 +137,10 @@ this.subscribeImage = function(topic, callback){
   return listener;
 }
 
+/** Subscribes to cvm_msgs/Stereoimage topic and receives rgb and disparity buffers (base64). Decodes them to javascript arrays.
+ @param topic - the name of steroimage topic
+ @param callback(data) - a function to be called with updated image data (RGB byte buffer, Disparity buffer, image width, image height, focal point, baseline etc.).
+ */
 this.subscribeStereoimage = function(topic, callback){
 	__instance.log('Subscribing to Stereoimage topic ', topic);
 	var type = this.getTopicType(topic)
@@ -255,7 +261,9 @@ this.drawImage = function(canvas, rgbBuffer, width, height) {
 	ctx.putImageData(pixels, 0, 0);
 }
 
-/** Renders received disparity buffer onto canvas element
+/** Renders received disparity buffer onto canvas element.
+	@param canvas - html canvas element where to render disparity
+	@param data - stereoimage containing decoded disparity buffer and more 
  */
 this.drawDisparity = function(canvas, data) {
 	canvas.width = data.width;
@@ -335,7 +343,23 @@ this.rgbdToCloud = function(data, points3DBuffer) {
 }
 
 /** This function uses ros PointCloud2 buffer data to update 3d model of the pointcloud
- */
+ @param rosBuffer - this parameter contains PointCloud2 structure. In case of VIPER it's a buffer of bytes where each pointcloud point
+ has 32 bytes :
+ offset		length		type		data
+ 0			4			float32		x coordinate
+ 4			4			float32		y coordinate
+ 8			4			float32		z coordinate
+ 12			4			float32		<reserved>
+ 16			1			byte		Red component
+ 17			1			byte		Green component
+ 18			1			byte		Blue component
+ 19			1			byte		<reserved>
+ 20			12			float32		3x floats, <reserved>
+ 
+ 
+ NOTE: RGB is encoded as BGR, don't forget to swap R and B.
+ XYZ is in ROS coordinate system.
+*/
 this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h) {
 	var positions = points3DBuffer.geometry.attributes.position.array;
 	var colors = points3DBuffer.geometry.attributes.color.array;
@@ -382,6 +406,31 @@ this.getCvmService = function() {
   });
 }
 
+this.getConfigNode = function(node, name) {
+	for (var [ttopic, config] of this.dynamicConfig) {
+		if (config.node == node)
+		{
+			return config;
+		}
+	}
+}
+
+this.setParameter = function(node, name, value, callback){
+	var configService = new ROSLIB.Service({
+	ros : viper.ros,
+	name : node + '/set_parameters',
+	serviceType : 'dynamic_reconfigure/Reconfigure'
+    });
+	var cfgNode = this.getConfigNode(node);
+	var param = cfgNode.getParameter(name);
+	param.value = value;
+	var request = new ROSLIB.ServiceRequest({config: cfgNode.cfg});
+	
+	configService.callService(request, function(result) {
+		if (callback != null) callback(result);
+    });
+}
+
 /** Default VIPER log function. Override to redirect log to different output
  */
 this.log = function(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10) {
@@ -413,13 +462,84 @@ VIPER.checkStatus = function(viper) {
 	isConnected = isConnected && viper.deviceInfo != null;
 	isConnected = isConnected && viper.apps != null;
 	isConnected = isConnected && viper.topics != null;
-	
+	isConnected = isConnected && viper.dynamicConfig != null;
+	if (viper.dynamicConfig != null)
+		for (var [ttopic, config] of viper.dynamicConfig) {
+			isConnected = isConnected && config.desc != null && config.cfg != null;
+		}
+		
 	if (isConnected != wasConnected)
 	{
 		viper.connected = isConnected;
 		if (viper.connected) viper.onConnected();
 		else viper.onDisconnected();
 	}
+}
+
+class ConfigItem
+{
+	constructor(node)
+	{
+		this.node = node;
+		this.desc = null;
+		this.cfg = null;
+		
+	}
+	
+	descCallback(desc) {
+		this.desc = desc;
+		VIPER.checkStatus(__instance);
+	}
+	
+	cfgCallback(cfg) {
+		this.cfg = cfg;
+		VIPER.checkStatus(__instance);
+	}
+	
+	getAllValues(){
+		var ret = [];
+		for (var b of this.cfg.bools) ret.push(b);
+		for (var b of this.cfg.doubles) ret.push(b);
+		for (var b of this.cfg.strs) ret.push(b);
+		for (var b of this.cfg.ints) ret.push(b);
+		return ret;
+	}
+	
+	getParameter(name){
+		for (var param of this.getAllValues())
+			if (param.name == name) 
+				return param;
+	}
+	
+}
+
+VIPER.readDynamicConfig = function(viper) {
+
+	viper.dynamicConfig = new Map();
+	
+	for (var [ttopic, ttype] of viper.topics) {
+		if (ttype == 'dynamic_reconfigure/ConfigDescription') {
+			var node = ttopic.replace('/parameter_descriptions', '');
+			var topicConfig = viper.dynamicConfig.get(node);
+			if (topicConfig == null) { 
+				topicConfig = new ConfigItem(node);
+				viper.dynamicConfig.set(node, topicConfig);
+				//viper.log('Topic ', ttopic, ' is a dynamic configuration description');
+			}
+			var sub = viper.subscribeTopic(ttopic, topicConfig.descCallback.bind(topicConfig));
+		}
+		if (ttype == 'dynamic_reconfigure/Config') {
+			var node = ttopic.replace('/parameter_updates', '');
+			var topicConfig = viper.dynamicConfig.get(node);
+			if (topicConfig == null) { 
+				topicConfig = new ConfigItem(node);
+				viper.dynamicConfig.set(node, topicConfig);
+				//viper.log('Topic ', ttopic, ' is a dynamic configuration');
+			}
+			var sub = viper.subscribeTopic(ttopic, topicConfig.cfgCallback.bind(topicConfig));
+		}
+	}
+
 }
 
 VIPER.getDeviceInfo = function(viper)
@@ -475,6 +595,7 @@ VIPER.getTopics = function(viper) {
 		for (var i = 0; i < result.topics.length; i++)
 			viper.topics.set(result.topics[i], result.types[i]);
 		viper.topics = new Map([...viper.topics].sort((a, b) => a[0] < b[0]? -1 : 1));
+		VIPER.readDynamicConfig(viper);
 		VIPER.checkStatus(viper);
     });
 }
@@ -555,6 +676,8 @@ VIPER.pointCloudFragmentShader = function() {
 	`
 }
 
+/** Class which creates 3D view from div element and customizes basic scene elements light lighting, grid and view controls
+ */
 class ViperViewer
 {
 	
