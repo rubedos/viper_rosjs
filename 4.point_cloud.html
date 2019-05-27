@@ -25,12 +25,14 @@
 		var sub = null;		// subscription handle
 		var cloud = null; 	// pointcloud model
 		var viewer = null;	// 3d viewer
+		var pointSize = 3.0;
 		// Select one of the pointcloud delivery methods:
 		var subscribeFunction 	 = subscribeDisparity;
 								//= subscribePoints;
 		var namespace;
 		function onload() {
-			viewer = VIPER.createDefault3DViewer('viewer', 800, 600);
+			viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 800, height: 600 });
+			viewer.cameraControls.target = new THREE.Vector3(0, 0, 2);
 		}
 		
 		function init(w, h){
@@ -58,7 +60,8 @@
 				countFrames();
 				if (cloud == null) init(w, h);
 				// TODO: here process points or just render them:
-				viper.updatePointsBuffer(buffer, cloud, w, h);
+				pointSize = parseFloat( document.getElementById('pointSize').value);
+				viper.updatePointsBuffer(buffer, cloud, w, h, pointSize);
 			});		
 		}
 		
@@ -68,7 +71,8 @@
 					countFrames();
 					if (cloud == null) init(data.width, data.height);
 					// TODO: here process points or just render them:
-					viper.rgbdToCloud(data, cloud);
+					pointSize = parseFloat( document.getElementById('pointSize').value);
+					viper.rgbdToCloud(data, cloud, pointSize);
 			});		
 		}
 		
@@ -84,6 +88,7 @@
 		}
 		
 		var lastCalledTime;
+		var lastUpdate = Date.now();
 		var fps;
 		function countFrames() {
 			if(!lastCalledTime) {
@@ -94,8 +99,12 @@
 			delta = (Date.now() - lastCalledTime)/1000;
 			lastCalledTime = Date.now();
 			fps = 1/delta;
-			document.getElementById("fps_label").innerText = 'Render FPS: ' + Number((fps).toFixed(1));
+			if ((Date.now() - lastUpdate) > 200) {
+				lastUpdate = Date.now();
+				document.getElementById("fps_label").innerText = 'Render FPS: ' + Number((fps).toFixed(1));
+			}
 		}
+
 	</script>
 </head>
 <body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
@@ -108,10 +117,13 @@
 		</td>
 		<td style="width:150px"><div id="fps_label"/></td>
 	</tr>
+	
+	<tr>
+		<td>Point size:</td>
+		<td><input value="3.0" id="pointSize" type="number"></input></td>
+	</tr>
 	</table>
-	<div>
-		<div id="viewer"></div>
-	</div>
+	<div id="viewer"></div>
 </body>
 
 </html>

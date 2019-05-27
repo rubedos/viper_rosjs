@@ -67,6 +67,44 @@ this.close = function() {
 	this.log('Closing connection to ' + this.ros_ip);
 }
 
+/** Calls a service to activate/deactivate specified VIPER app
+ */
+this.activateApp = function(appId, activate, extRosMaster) {
+	var prm1 = appId;
+	var prm2 = '';
+	var prm3 = '';
+	if (extRosMaster == true) prm3 = 'yes';
+	var cmd = 'activateapp';
+	if (!activate) cmd = 'deactivateapp';
+	if (appId == 'cvm-follow-me') prm2 = 'roslaunch cvm_follow_me follow_me.launch';
+	if (appId == 'cvm-stereo') prm2 = 'roslaunch cvm_v4l2_camera v4l2_stereo.launch';
+	if (appId == 'cvm-obstacle-detector') prm2 = 'roslaunch cvm_laserscan laserscan.launch';
+	if (appId == 'cvm-follow-aruco') prm2 = 'roslaunch cvm_follow_aruco follow_aruco.launch';
+	
+	var request = new ROSLIB.ServiceRequest({
+	'auth' : 'labas', 'cmd' : cmd, 'prm1' : prm1, 'prm2' : prm2, 'prm3' : prm3
+	});
+	
+	var cvmAPI = this.getCvmService();
+	
+	cvmAPI.callService(request, function(result) {
+		viper.log('CVM API service responded to request "' + request.cmd + '". RC: '+result.rc);
+	});
+}
+
+this.resetImu = function(finishedCallback) {
+	var cmd = 'resetimu';
+	
+	var request = new ROSLIB.ServiceRequest({
+		'auth' : 'labas', 'cmd' : cmd, 'prm1' : '', 'prm2' : '', 'prm3' : ''
+	});
+	this.getCvmService().callService(request, function(result) {
+		viper.log('CVM API service responded to request "' + request.cmd + '". RC: '+result.rc);
+		setTimeout(function(){ finishedCallback(); }, 1000);
+	});
+	
+}
+
 this.getTopicType = function(topic) {
 	if (this.topics == null) throw "Topic list is empty";
 	var type = null;
@@ -223,7 +261,8 @@ this.createPointCloud3D = function(width, height) {
 
 	var material = new THREE.ShaderMaterial( {
 		uniforms: {
-			color: { value: new THREE.Color( 0xffffff ) },
+			//color: { value: new THREE.Color( 0xffffff ) },
+			pointSize: {type: 'float', value: 5.0 }
 		},
 		vertexShader: VIPER.pointCloudVertexShader()
 		,vertexColors: true
@@ -302,7 +341,7 @@ this.drawDisparity = function(canvas, data) {
  @param data - decoded message received from VIPER containing RGB and Disparity buffers
  @param points3DBuffer - structure for pointcloud rendering 
  */
-this.rgbdToCloud = function(data, points3DBuffer) {
+this.rgbdToCloud = function(data, points3DBuffer, pointSize) {
 	var positions = points3DBuffer.geometry.attributes.position.array;
 	var colors = points3DBuffer.geometry.attributes.color.array;
 	// NOTE: principal point should come from calibrated camera info
@@ -340,6 +379,10 @@ this.rgbdToCloud = function(data, points3DBuffer) {
 		}
 	points3DBuffer.geometry.attributes.position.needsUpdate = true;
 	points3DBuffer.geometry.attributes.color.needsUpdate = true;
+	if (pointSize != null) {
+		points3DBuffer.material.uniforms['pointSize'].value = pointSize;
+		points3DBuffer.material.needsUpdate = true;
+	}
 }
 
 /** This function uses ros PointCloud2 buffer data to update 3d model of the pointcloud
@@ -360,7 +403,7 @@ this.rgbdToCloud = function(data, points3DBuffer) {
  NOTE: RGB is encoded as BGR, don't forget to swap R and B.
  XYZ is in ROS coordinate system.
 */
-this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h) {
+this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h, pointSize) {
 	var positions = points3DBuffer.geometry.attributes.position.array;
 	var colors = points3DBuffer.geometry.attributes.color.array;
 	var point_step = 32; 				// Received from PointCloud2 structure
@@ -397,6 +440,10 @@ this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h) {
 		}
 	points3DBuffer.geometry.attributes.position.needsUpdate = true;
 	points3DBuffer.geometry.attributes.color.needsUpdate = true;
+	if (pointSize != null) {
+		points3DBuffer.material.uniforms.pointSize = pointSize;
+		points3DBuffer.material.needsUpdate = true;
+	}
 }
 
 this.getCvmService = function() {
@@ -562,7 +609,7 @@ VIPER.getDeviceInfo = function(viper)
 	{
 		viper.log('Calling CVM API service: info');
 		cvmAPI.callService(request, function(result) {
-		viper.log('CVM API service responded. RC: '+result.rc);
+		viper.log('CVM API service responded to request "' + request.cmd + '". RC: '+result.rc);
 		var datetime = "" + new Date().toLocaleString();
 		viper.version = result.version;
 		viper.apps = result.apps;
@@ -600,8 +647,48 @@ VIPER.getTopics = function(viper) {
     });
 }
 
+VIPER.createViper3DModel = function() {
+	var root = new THREE.Group();
+	var material = new THREE.MeshStandardMaterial( {color: 0xaa0000, metalness: 0.7} );
+	var geometry = new THREE.BoxGeometry( 0.068, 0.246, 0.035 );
+	var box = new THREE.Mesh( geometry, material );
+	box.position = new THREE.Vector3( 0, 0, 0 );
+	root.add( box );
 
-VIPER.createDefault3DViewer = function(divElement, width, height) {
+	geometry = new THREE.BoxGeometry( 0.032,0.15, 0.025 );
+	box = new THREE.Mesh( geometry, material );
+	box.position.set( -0.09/2, 0, 0 );
+	root.add( box );
+
+	geometry = new THREE.BoxGeometry( 0.05,0.14, 0.01 );
+	box = new THREE.Mesh( geometry, material );
+	box.position.set( -0.02, 0, 0.035/2 );
+	root.add( box );
+	
+	var box = new THREE.Box3();
+	box.setFromCenterAndSize( new THREE.Vector3( 0, 0, 0 ), new THREE.Vector3( 0.068, 0.246, 0.035 ) );
+	var helper = new THREE.Box3Helper( box, 0xaaaaaa );
+	root.add( helper );
+	
+	box = new THREE.Box3();
+	box.setFromCenterAndSize( new THREE.Vector3( -0.09/2, 0, 0 ), new THREE.Vector3( 0.032,0.15, 0.025 ) );
+	helper = new THREE.Box3Helper( box, 0xaaaaaa );
+	root.add( helper );
+
+	box = new THREE.Box3();
+	box.setFromCenterAndSize( new THREE.Vector3( -0.02, 0, 0.035/2), new THREE.Vector3( 0.05,0.14, 0.01 ) );
+	helper = new THREE.Box3Helper( box, 0xaaaaaa );
+	root.add( helper );
+	return root;
+}
+
+VIPER.createDefault3DViewer = function(options) {
+	options = options || {};
+	var divElement = options.divElement;
+	var width = options.width;
+	var height = options.height;
+	var addAxis = (options.addAxis == null) || options.addAxis && true;
+	
 	var viewer = new ViperViewer({
 	//new ROS3D.Viewer({
 		divID : divElement,
@@ -623,12 +710,15 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 
 	var minorGrid = new THREE.GridHelper(10, 50, 0xDDDDDD, 0x999999);
 	viewer.scene.add( minorGrid);
-	minorGrid.position.y = -0.01;
+	minorGrid.position.y = -0.011;
 	var majorGrid = new THREE.GridHelper(20, 20, 0xDDDDDD, 0x777777);
 	viewer.scene.add( majorGrid);
+	majorGrid.position.y = -0.01;
 	
-	var axesHelper = new THREE.AxesHelper( 1 );
-	viewer.scene.add( axesHelper );
+	if (addAxis == true) {
+		var axesHelper = new THREE.AxesHelper( 1 );
+		viewer.scene.add( axesHelper );
+	}
 
 	var material = new THREE.LineBasicMaterial({ color: 0x0000ff });
 
@@ -655,14 +745,14 @@ VIPER.createDefault3DViewer = function(divElement, width, height) {
 VIPER.pointCloudVertexShader = function() {
 	return `
 	varying vec3 vColor;
+	uniform float pointSize;
 	
-	void main() {
+	void main()	{
 		vColor = color;
 		vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
-		gl_PointSize = 2.0;
+		gl_PointSize = pointSize;
 		gl_Position = projectionMatrix * mvPosition;
-
-			}
+	}
 	`
 }
 

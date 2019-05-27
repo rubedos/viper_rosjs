@@ -22,7 +22,7 @@
 		var sub = null;			// subscription handle
 		var laserScan = null;	// Laser scan group
 		function onload() {
-			var viewer = VIPER.createDefault3DViewer('viewer', 800, 600);
+			var viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 800, height: 600 });
 			laserScan = new THREE.Group();
 			viewer.scene.add(laserScan);
 		}

@@ -37,7 +37,7 @@
 		var arrow3D;
 		var targetLabel;
 		function onload() {
-			viewer = VIPER.createDefault3DViewer('viewer', 640, 360);
+			viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 640, height: 360 });
 			person3D = personMesh();
 			viewer.scene.add( person3D);
 			arrow3D = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0.75, 0), 0.01, 0xffff00, 0.1, 0.1);

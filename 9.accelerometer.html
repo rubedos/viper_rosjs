@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>Accelerometer. VIPER ROSJS</title>
+	<meta charset="utf-8" />
+	<style>
+		.crd{text-align: right; width:80px}
+	</style>
+
+	<script src="3rdparty/three.js"></script>
+	<script src="3rdparty/controls/OrbitControls.js"></script>
+	<script src="3rdparty/eventemitter2.js"></script>
+	<script src="3rdparty/roslib.js"></script>
+	<script src="3rdparty/ROS3D/build/ros3d.js"></script>
+	<script src="3rdparty/base64-binary.js"></script>
+	<script src="viper.js" type="text/javascript"></script>
+	<script src="3rdparty/WebGL.js"></script>
+    <script>
+		/** This example demonstrates laser scan created from 3D pointcloud
+		 */
+		if ( WEBGL.isWebGLAvailable() === false ) {
+			document.body.appendChild( WEBGL.getWebGLErrorMessage() );
+		} 
+		var viper = null; 		// viper handle
+		var sub = null;			// subscription handle
+		var viperGroup = null;
+		var webGlSpace = null;
+		var velocityArrow = null;
+		var velocity = null;
+		var QSIZE = 10;
+		var imuQueue = []
+		var calibrated = null;	// IMU reading at the moment of calibration
+		var currentImu = null;	// Last reading from IMU topic.
+		var currentPos = null;
+		var lastMsg = null;
+		var _lAcc = null;
+		var _aVel = null;
+		var _orient = null;
+		var positionLocked = false;
+		
+		function onload() {
+			var zoom = 200;
+			var width = 400, height = 300;
+			var viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: width, height: height, addAxis : false });
+			viewer.cameraControls.position0.set(1, 1, 1);
+			// Creating 2 x 2 views from all angles for easier observation
+			var frontView = VIPER.createDefault3DViewer({ divElement: 'front', width: width, height: height});
+			frontView.scene = viewer.scene;
+			frontView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
+			frontView.camera.zoom = zoom;
+			frontView.camera.position.set(0, 0, -10);
+			frontView.camera.rotation.set(0, Math.PI, 0);
+			frontView.camera.lookAt = (new THREE.Vector3(0, 0, 0));
+			frontView.camera.up = new THREE.Vector3(0, 1, 0);
+			frontView.camera.updateProjectionMatrix();
+
+			var topView = VIPER.createDefault3DViewer({ divElement: 'top', width: width, height: height});
+			topView.scene = viewer.scene;
+			topView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
+			topView.camera.zoom = zoom;
+			topView.camera.position.set(0, 10, 0);
+			topView.camera.rotation.set(-Math.PI/2, 0, Math.PI);
+			topView.camera.lookAt = (new THREE.Vector3(0, 0, 0));
+			topView.camera.up = new THREE.Vector3(0, 1, 0);
+			topView.camera.updateProjectionMatrix();
+
+			var leftView = VIPER.createDefault3DViewer({ divElement: 'leftView', width: width, height: height});
+			leftView.scene = viewer.scene;
+			leftView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
+			leftView.camera.zoom = zoom;
+			leftView.camera.position.set(-10, 0, 0);
+			leftView.camera.rotation.set(0, -Math.PI/2, 0);
+			leftView.camera.lookAt = (new THREE.Vector3(0, 0, 0));
+			leftView.camera.up = new THREE.Vector3(0, 1, 0);
+			leftView.camera.updateProjectionMatrix();
+
+			webGlSpace = new THREE.Group();
+			webGlSpace.rotation.set(Math.PI/2, 0, Math.PI/2);
+			viperGroup = new THREE.Group();
+			webGlSpace.add(viperGroup);
+			viewer.scene.add(webGlSpace);
+			velocityArrow = new THREE.ArrowHelper( new THREE.Vector3( 1, 0, 0 ), new THREE.Vector3( 0, 0, 0 ), 0.01, 0xffff00 );
+			viperGroup.add( velocityArrow );
+		
+			var axesHelper = new THREE.AxesHelper( 0.5 );
+			viperGroup.add( axesHelper );
+			viperGroup.add( VIPER.createViper3DModel());
+
+		}
+
+		function connect() {
+			var ip = document.getElementById('viper_ip').value;
+			viper = new VIPER({viper_ip : ip});
+			viper.onConnected = onConnected;
+			viper.connect();
+		}
+		
+		// Callback invoked when connected to viper
+		function onConnected() {
+			var namespace = viper.deviceInfo.get("VIPER_PREFIX");
+			var topic = '/' + namespace + '/imu';
+			sub = viper.subscribeTopic(topic, function(msg){
+				countFrames();
+				onDataUpdate(msg);
+			});
+			recalibrate();
+		}
+		/** This function calculates deltas between reference and current: linear acceleration, orientation and angular velocty
+		@param imu - current device readings
+		@param ref - reference device readings (e.g. calibrated position).
+		 */
+		function getDelta(imu, ref){
+			var delta = {lAcc: null, orient: new THREE.Quaternion(0, 0, 0, 0), aVel: null};
+			
+			var imuOrient = imu.orient.clone();
+			imuOrient.inverse();
+			delta.aVel = new THREE.Vector3(0, 0, 0).subVectors( imu.aVel, ref.aVel ); 
+			
+			var g = ref.lAcc.clone();
+			g.applyQuaternion(imuOrient);
+			g.applyQuaternion(ref.orient);
+			delta.lAcc = imu.lAcc.clone().sub(g);
+			
+			var rMat = new THREE.Matrix4();
+			rMat.compose(new THREE.Vector3(0, 0, 0), ref.orient, new THREE.Vector3(1, 1, 1));
+			rMat.getInverse(rMat);
+			var imMat = new THREE.Matrix4();
+			imMat.compose(new THREE.Vector3(0, 0, 0), imu.orient, new THREE.Vector3(1, 1, 1));
+			imMat.multiply(rMat);
+			delta.orient.setFromRotationMatrix(imMat);
+			return delta;
+		}
+		
+		/** Calculates average of QSIZE imu readings for linear acceleration, orientation and angular velocty
+		 */
+		function lowPassFilter() {
+			var qX = 0;
+			var qY = 0;
+			var qZ = 0;
+			var qW = 0;
+			var smooth = {lAcc: new THREE.Vector3(0, 0, 0), orient: null, aVel: new THREE.Vector3(0, 0, 0)};
+			for (var item of imuQueue) {
+				smooth.lAcc.add(item.lAcc);
+				smooth.aVel.add(item.aVel);
+				qX += item.orient.x;
+				qY += item.orient.y;
+				qZ += item.orient.z;
+				qW += item.orient.w;
+			}
+			smooth.lAcc.multiplyScalar(1/imuQueue.length);
+			smooth.aVel.multiplyScalar(1/imuQueue.length);
+			smooth.orient = new THREE.Quaternion(qX / imuQueue.length, qY / imuQueue.length, qZ / imuQueue.length, qW / imuQueue.length);
+			smooth.orient.normalize();
+			truncVector(smooth.lAcc);
+
+			return smooth;
+		}
+		
+		function truncVector(v3) {
+			v3.multiplyScalar(100).round().multiplyScalar(0.01);
+		}
+		
+		function onDataUpdate(imuMsg){
+			// First step - collect data into buffer and apply lowPass filter
+			var linAcc = new THREE.Vector3( imuMsg.linear_acceleration.x, imuMsg.linear_acceleration.y, imuMsg.linear_acceleration.z);
+			var orient = new THREE.Quaternion(imuMsg.orientation.x, imuMsg.orientation.y, imuMsg.orientation.z, imuMsg.orientation.w);
+			var aVelocity = new THREE.Vector3(imuMsg.angular_velocity.x, imuMsg.angular_velocity.y, imuMsg.angular_velocity.z);
+
+			imuQueue.push({lAcc: linAcc, orient: orient, aVel: aVelocity, timestamp: imuMsg.header.stamp.secs +imuMsg.header.stamp.nsecs/1E9});
+			if (imuQueue.length > QSIZE)
+				imuQueue.shift();
+			currentImu = lowPassFilter();
+			
+			// Second - calibrate if necessary
+			if (calibrated == null){
+				if (imuQueue.length < QSIZE) return; // Not enough data to calibrate 
+				calibrated = currentImu;
+				currentPos = new THREE.Vector3(0, 0, 0);
+				velocity = new THREE.Vector3(0, 0, 0);
+				var orientEul = new THREE.Euler().setFromQuaternion(calibrated.orient);
+				viper.log('Calibrated acc: ', calibrated.lAcc.x.toFixed(2), ', ', calibrated.lAcc.y.toFixed(2), ', ', calibrated.lAcc.z.toFixed(2));
+				viper.log('Calibrated orient: ', (orientEul.x /3.14*180).toFixed(2), ', ', (orientEul.y /3.14*180).toFixed(2), ', ', (orientEul.z /3.14*180).toFixed(2));
+			}
+			// Third - calculate current position, velocities and accelerations with respect to calibrated position
+			if (lastMsg != null) {
+				var delta = getDelta(currentImu, calibrated);
+				_lAcc = delta.lAcc.clone();
+				_aVel = delta.aVel.clone();
+				_orient = delta.orient.clone();
+				
+				// NOTE: velocity is accumulated between frames, but it quickly drifts away
+				var deltaT = (imuMsg.header.stamp.secs +imuMsg.header.stamp.nsecs/1E9) - (lastMsg.header.stamp.secs + lastMsg.header.stamp.nsecs/1E9);	// secs
+				velocity.sub(delta.lAcc.clone().multiplyScalar(deltaT));
+				truncVector(velocity);
+
+				if (!positionLocked) currentPos.add(velocity.clone().multiplyScalar(deltaT));
+				viperGroup.position.set( currentPos.x, currentPos.y, currentPos.z);
+				viperGroup.quaternion.set( delta.orient.x, delta.orient.y, delta.orient.z,  delta.orient.w);
+
+				velocityArrow.setLength(delta.lAcc.length());
+				velocityArrow.setDirection(delta.lAcc.clone().normalize());
+			}
+			lastMsg = imuMsg;
+		}
+		
+		function recalibrate(){
+			viper.resetImu(function() {
+				calibrated = null;
+				velocity = null;
+				currentPos = null;
+			});
+		}
+		
+		function lockPosition( lock) {
+			positionLocked = lock;
+		}
+		
+		// Close subscriptions and connections
+		function finalize() {
+			sub.unsubscribe();
+			viper.close();
+		}
+		
+		// Cancel subscription
+		function stopStreaming() {
+			sub.unsubscribe();
+		}
+		
+		function setCoord(id, coord) {
+			document.getElementById(id).innerText = coord.toFixed(2);
+		}
+		
+		var lastCalledTime;
+		var lastUpdate = Date.now();
+		var fps;
+		function countFrames() {
+			if(!lastCalledTime) {
+				lastCalledTime = Date.now();
+				fps = 0;
+			 return;
+			}
+			delta = (Date.now() - lastCalledTime)/1000;
+			lastCalledTime = Date.now();
+			fps = 1/delta;
+			if ((Date.now() - lastUpdate) > 200) {
+				lastUpdate = Date.now();
+				document.getElementById("fps_label").innerText = 'Render FPS: ' + Number((fps).toFixed(1));
+				if (_lAcc != null){
+					setCoord("lax", _lAcc.x);
+					setCoord("lay", _lAcc.y);
+					setCoord("laz", _lAcc.z);
+					
+					setCoord("avx", (_aVel.x)/3.14 * 180);
+					setCoord("avy", (_aVel.y)/3.14 * 180);
+					setCoord("avz", (_aVel.z)/3.14 * 180);
+					
+					var eul = new THREE.Euler(0, 0, 0, 'XYZ');
+					eul.setFromQuaternion(_orient);
+					setCoord("ox", (eul.x)/3.14 * 180);
+					setCoord("oy", (eul.y)/3.14 * 180);
+					setCoord("oz", (eul.z)/3.14 * 180);
+
+					setCoord("vx", velocity.x);
+					setCoord("vy", velocity.y);
+					setCoord("vz", velocity.z);
+
+					setCoord("cpx", currentPos.x);
+					setCoord("cpy", currentPos.y);
+					setCoord("cpz", currentPos.z);
+				}
+			}
+		}
+	</script>
+</head>
+<body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
+	<p><div style="color:darkgray;size:small">Hint: open javascript console for more information (Ctrl + Shift + I)...</div></p>
+	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();">Connect</button></div>
+	<table>
+	<tr>
+		<td colspan="1">
+			<div id="viewer"></div>
+		</td>
+		<td colspan="1">
+			<div id="front"></div>
+		</td>
+	</tr>
+	<tr>
+		<td colspan="1">
+			<div id="top"></div>
+		</td>
+		<td colspan="1">
+			<div id="leftView"></div>
+		</td>
+	</tr>
+	<tr>
+		<td style="text-align: left;">
+			<button style="padding-right:20px; padding-left:20px;" onclick="recalibrate();">Recalibrate</button>
+			<input type="checkbox" onclick="lockPosition(this.checked)">Lock position</input>
+		</td>
+		<td style="width:150px"><div id="fps_label"/></td>
+	</tr>
+	<tr>
+		<td colspan="2">
+			<table>
+				<tr><td>Linear acceleration:</td><td>XYZ</td><td class="crd" id="lax"></td><td class="crd" id="lay"></td><td class="crd" id="laz"></td><td>m/s²</td></tr>
+				<tr><td>Angular velocity:</td><td>XYZ</td><td class="crd" id="avx"></td><td class="crd" id="avy"></td><td class="crd" id="avz"><td>deg/s</td></tr>
+				<tr><td>Orientation:</td><td>XYZ</td><td class="crd" id="ox"></td><td class="crd" id="oy"></td><td class="crd" id="oz"><td>deg</td></tr>
+				<tr><td>Current Position:</td><td>XYZ</td><td class="crd" id="cpx"></td><td class="crd" id="cpy"></td><td class="crd" id="cpz"><td>m</td></tr>
+				<tr><td>Velocity:</td><td>XYZ</td><td class="crd" id="vx"></td><td class="crd" id="vy"></td><td class="crd" id="vz"><td>m/s</td></tr>
+			</table>
+			<div style="width:500px" id="imu"></div>
+		</td>
+	</tr>
+	</table>
+</body>
+
+</html>
