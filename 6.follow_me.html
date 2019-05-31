@@ -36,13 +36,20 @@
 		var person3D;
 		var arrow3D;
 		var targetLabel;
+		var personSpace;	// This is required to transform from camera space to ROS space coordinates
+
 		function onload() {
-			viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 640, height: 360 });
+			viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 640, height: 360, addAxis: false });
+			personSpace = new THREE.Group();
+			personSpace.rotation.set(Math.PI/2, Math.PI/2, 0);
+			viewer.scene.add(personSpace);
+			var axesHelper = new THREE.AxesHelper( 1 );
+			personSpace.add( axesHelper );
 			person3D = personMesh();
-			viewer.scene.add( person3D);
+			personSpace.add( person3D);
 			arrow3D = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0.75, 0), 0.01, 0xffff00, 0.1, 0.1);
 			arrow3D.setLength(0.01);
-			viewer.scene.add( arrow3D);
+			personSpace.add( arrow3D);
 			//targetLabel = makeTextSprite('');
 			//scene.add( targetLabel );
 			stage = document.getElementById('video');
@@ -64,7 +71,7 @@
 			for (var i = 0; i < viper.apps.length; i++)
 				if (viper.apps[i].id == 'cvm-follow-me') fmApp = viper.apps[i];
 			if (!fmApp.isActive) {
-				document.body.appendChild( 'Activate FollowMe application first!' );
+				alert( 'Activate FollowMe application first!' );
 				finalize();
 				return;
 			}
@@ -118,8 +125,6 @@
 				arrow3D.setLength(dir.length()*0.95);
 				document.getElementById('distance').innerText = 'Distance to target: ' + target.pos.z.toPrecision(2) + ' m.'+
 					'   Vector: x=' +person3D.position.x.toPrecision(2) + ', z=' + person3D.position.z.toPrecision(2) + ' m';
-				//targetLabel.text = 'Target ' + person3D.position.x.toPrecision(2) + ', ' + person3D.position.z.toPrecision(2) + ' m';
-				//targetLabel.position = new THREE.Vector3(person3D.position.x/2, 1, person3D.position.z /2);
 			});
 		}	
 		

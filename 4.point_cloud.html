@@ -26,19 +26,25 @@
 		var cloud = null; 	// pointcloud model
 		var viewer = null;	// 3d viewer
 		var pointSize = 3.0;
+		var pointCloudSpace;	// This is required to transform from camera space to ROS space coordinates
 		// Select one of the pointcloud delivery methods:
 		var subscribeFunction 	 = subscribeDisparity;
 								//= subscribePoints;
 		var namespace;
 		function onload() {
-			viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 800, height: 600 });
+			viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 800, height: 600, addAxis: false });
 			viewer.cameraControls.target = new THREE.Vector3(0, 0, 2);
+			pointCloudSpace = new THREE.Group();
+			pointCloudSpace.rotation.set(Math.PI/2, Math.PI/2, 0);
+			viewer.scene.add(pointCloudSpace);
+			var axesHelper = new THREE.AxesHelper( 1 );
+			pointCloudSpace.add( axesHelper );
 		}
 		
 		function init(w, h){
 			var amount = w * h;
 			cloud = viper.createPointCloud3D(w, h);
-			viewer.scene.add(cloud);
+			pointCloudSpace.add(cloud);
 		}
 
 		function connect() {

@@ -25,7 +25,7 @@
 		var viper = null; 		// viper handle
 		var sub = null;			// subscription handle
 		var viperGroup = null;
-		var webGlSpace = null;
+		var imuSpace = null;
 		var velocityArrow = null;
 		var velocity = null;
 		var QSIZE = 10;
@@ -45,7 +45,7 @@
 			var viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: width, height: height, addAxis : false });
 			viewer.cameraControls.position0.set(1, 1, 1);
 			// Creating 2 x 2 views from all angles for easier observation
-			var frontView = VIPER.createDefault3DViewer({ divElement: 'front', width: width, height: height});
+			var frontView = VIPER.createDefault3DViewer({ divElement: 'front', width: width, height: height, addAxis : false });
 			frontView.scene = viewer.scene;
 			frontView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
 			frontView.camera.zoom = zoom;
@@ -55,7 +55,7 @@
 			frontView.camera.up = new THREE.Vector3(0, 1, 0);
 			frontView.camera.updateProjectionMatrix();
 
-			var topView = VIPER.createDefault3DViewer({ divElement: 'top', width: width, height: height});
+			var topView = VIPER.createDefault3DViewer({ divElement: 'top', width: width, height: height, addAxis : false });
 			topView.scene = viewer.scene;
 			topView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
 			topView.camera.zoom = zoom;
@@ -65,7 +65,7 @@
 			topView.camera.up = new THREE.Vector3(0, 1, 0);
 			topView.camera.updateProjectionMatrix();
 
-			var leftView = VIPER.createDefault3DViewer({ divElement: 'leftView', width: width, height: height});
+			var leftView = VIPER.createDefault3DViewer({ divElement: 'leftView', width: width, height: height, addAxis : false });
 			leftView.scene = viewer.scene;
 			leftView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
 			leftView.camera.zoom = zoom;
@@ -75,11 +75,11 @@
 			leftView.camera.up = new THREE.Vector3(0, 1, 0);
 			leftView.camera.updateProjectionMatrix();
 
-			webGlSpace = new THREE.Group();
-			webGlSpace.rotation.set(Math.PI/2, 0, Math.PI/2);
+			imuSpace = new THREE.Group();
+			imuSpace.rotation.set(Math.PI, 0, 0);
 			viperGroup = new THREE.Group();
-			webGlSpace.add(viperGroup);
-			viewer.scene.add(webGlSpace);
+			imuSpace.add(viperGroup);
+			viewer.scene.add(imuSpace);
 			velocityArrow = new THREE.ArrowHelper( new THREE.Vector3( 1, 0, 0 ), new THREE.Vector3( 0, 0, 0 ), 0.01, 0xffff00 );
 			viperGroup.add( velocityArrow );
 		

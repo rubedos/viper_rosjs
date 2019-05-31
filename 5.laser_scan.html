@@ -37,6 +37,14 @@
 		// Callback invoked when connected to viper
 		function onConnected() {
 			var namespace = viper.deviceInfo.get("VIPER_PREFIX");
+			for (var app of viper.apps) {
+				if (app.id == "cvm-obstactle-detector")
+					if (!app.isActive) {
+						alert('Obstacle avoidance application is not activated!');
+						return;
+					}
+						
+			}
 			var topic = '/' + namespace + '/laser_scan';
 			sub = viper.subscribeTopic(topic, function(msg){
 				countFrames();
@@ -68,7 +76,7 @@
 					ray = maxray;
 				  else
 					ray = lsMsg.ranges[i];
-				  nextPoint = new THREE.Vector3(( Math.sin(angle) * ray) + origin.x,  origin.y, ( Math.cos(angle) * ray) + origin.z);
+				  nextPoint = new THREE.Vector3( ( Math.cos(angle) * ray) + origin.z, ( Math.sin(angle) * ray) + origin.x,  origin.y);
 				}
 				var beamW = 0.01;
 				geometry.vertices.push(nextPoint);

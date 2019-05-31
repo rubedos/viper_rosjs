@@ -92,6 +92,9 @@ this.activateApp = function(appId, activate, extRosMaster) {
 	});
 }
 
+/** Call this method to reset imu orientation fusion (i.e. current VIPER orientation becomes 0, 0 ,0).
+	@param finishedCallback is invoked when reset has been finished.
+ */
 this.resetImu = function(finishedCallback) {
 	var cmd = 'resetimu';
 	
@@ -108,6 +111,7 @@ this.resetImu = function(finishedCallback) {
 this.getTopicType = function(topic) {
 	if (this.topics == null) throw "Topic list is empty";
 	var type = null;
+	if (topic[0] != '/') topic = '/' + topic;
 	for (var [ttopic, ttype] of __instance.topics)
 		if (ttopic == topic) type = ttype;
 	if (type == null) throw 'Topic ' + topic + ' type is unknown';
@@ -347,6 +351,7 @@ this.rgbdToCloud = function(data, points3DBuffer, pointSize) {
 	// NOTE: principal point should come from calibrated camera info
 	var principalX = data.width /2;
 	var principalY = data.height /2;
+	var invalidPoints = 0; var invalidVal = 0;
 	for (var y = 0; y < data.height; y++)
 		for (var x = 0; x < data.width; x++)
 		{
@@ -372,11 +377,13 @@ this.rgbdToCloud = function(data, points3DBuffer, pointSize) {
 			}
 			else
 			{
-				positions[ip] = 0; 
-				positions[ip + 1] = 0; 
-				positions[ip + 2] = 0; 
+				positions[ip] = invalidVal; 
+				positions[ip + 1] = invalidVal; 
+				positions[ip + 2] = invalidVal; 
+				invalidPoints++;
 			}
 		}
+	//this.log('Total points: ', data.height * data.width, ', invalids: ', invalidPoints);
 	points3DBuffer.geometry.attributes.position.needsUpdate = true;
 	points3DBuffer.geometry.attributes.color.needsUpdate = true;
 	if (pointSize != null) {
@@ -444,6 +451,49 @@ this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h, pointSize) {
 		points3DBuffer.material.uniforms.pointSize = pointSize;
 		points3DBuffer.material.needsUpdate = true;
 	}
+}
+
+this.subscribeTf = function(newTfCallback) {
+	this.tfNodes = new Map();
+	this.newTfCallback = newTfCallback.bind(this);
+	this.tfClient = new ROSLIB.TFClient({
+		ros : this.ros,
+		fixedFrame : 'base_link',
+		angularThres : 0.01,
+		transThres : 0.01
+	});
+	var namespace = this.deviceInfo.get("VIPER_PREFIX");
+	this.subscribeTopic('tf', this.onTfUpdate.bind(this));
+	this.subscribeTopic('tf_static', this.onTfUpdate.bind(this));
+}
+
+this.onTfUpdate = function(msg){
+	for(var tf of msg.transforms){
+		var parent = tf.header.frame_id;
+		if (this.tfNodes.get(parent) == null)
+		{
+			this.tfNodes.set(parent, new THREE.Group());
+			this.onNewTf(parent);
+		}
+		var child = tf.child_frame_id;
+		if (this.tfNodes.get(child) == null)
+		{
+			this.tfNodes.set(child, new THREE.Group());
+			this.onNewTf(child);
+		}
+		this.tfNodes.get(parent).add(this.tfNodes.get(child));
+		
+	}
+	this.tfClient.processTFArray(msg);
+}
+
+this.onNewTf = function(id){
+	var tfUpdateFn = function(tf) {
+		this.position.set(tf.translation.x, tf.translation.y, tf.translation.z);
+		this.setRotationFromQuaternion(tf.rotation);
+	}
+	this.tfClient.subscribe(id, tfUpdateFn.bind(this.tfNodes.get(id)));
+	if (this.newTfCallback != null) this.newTfCallback(id);
 }
 
 this.getCvmService = function() {
@@ -662,7 +712,7 @@ VIPER.createViper3DModel = function() {
 
 	geometry = new THREE.BoxGeometry( 0.05,0.14, 0.01 );
 	box = new THREE.Mesh( geometry, material );
-	box.position.set( -0.02, 0, 0.035/2 );
+	box.position.set( -0.02, 0, -0.035/2 );
 	root.add( box );
 	
 	var box = new THREE.Box3();
@@ -676,7 +726,7 @@ VIPER.createViper3DModel = function() {
 	root.add( helper );
 
 	box = new THREE.Box3();
-	box.setFromCenterAndSize( new THREE.Vector3( -0.02, 0, 0.035/2), new THREE.Vector3( 0.05,0.14, 0.01 ) );
+	box.setFromCenterAndSize( new THREE.Vector3( -0.02, 0, -0.035/2), new THREE.Vector3( 0.05,0.14, 0.01 ) );
 	helper = new THREE.Box3Helper( box, 0xaaaaaa );
 	root.add( helper );
 	return root;
@@ -688,6 +738,7 @@ VIPER.createDefault3DViewer = function(options) {
 	var width = options.width;
 	var height = options.height;
 	var addAxis = (options.addAxis == null) || options.addAxis && true;
+	var showOverlay = (options.showOverlay == null) || options.showOverlay && true;
 	
 	var viewer = new ViperViewer({
 	//new ROS3D.Viewer({
@@ -709,15 +760,31 @@ VIPER.createDefault3DViewer = function(options) {
 	viewer.cameraControls.enableKeys = true;
 
 	var minorGrid = new THREE.GridHelper(10, 50, 0xDDDDDD, 0x999999);
-	viewer.scene.add( minorGrid);
+	viewer._sceneRoot.add( minorGrid);
 	minorGrid.position.y = -0.011;
 	var majorGrid = new THREE.GridHelper(20, 20, 0xDDDDDD, 0x777777);
-	viewer.scene.add( majorGrid);
+	viewer._sceneRoot.add( majorGrid);
 	majorGrid.position.y = -0.01;
 	
 	if (addAxis == true) {
 		var axesHelper = new THREE.AxesHelper( 1 );
 		viewer.scene.add( axesHelper );
+	}
+	if (showOverlay) {
+		var overlayAxes = new THREE.AxesHelper( 1 );
+		overlayAxes.rotation.set(-Math.PI/2, 0, -Math.PI/2);	// This transforms from WebGL to ROS coordinate systems.
+		viewer.overlayScene.add( overlayAxes );
+		viewer.cameraControls.addEventListener( 'change', function(){
+			viewer.overlayCamera.position.set(0, 0, viewer.camera.position.z);
+			var q = viewer.camera.quaternion.clone();
+			viewer.overlayCamera.rotation.setFromQuaternion(viewer.camera.quaternion);
+			var pos = new THREE.Vector3(0, 0, 3);			
+			pos.applyQuaternion(q);
+			viewer.overlayCamera.position.set(pos.x, pos.y, pos.z);
+			viewer.overlayCamera.updateProjectionMatrix();
+
+			}
+		);
 	}
 
 	var material = new THREE.LineBasicMaterial({ color: 0x0000ff });
@@ -803,9 +870,26 @@ class ViperViewer
 		this.renderer.setSize(width, height);
 		this.renderer.shadowMap.enabled = false;
 		this.renderer.autoClear = false;
+		
+		// Overlay part for axes helper
+		var oWidth = width/8;
+		var oHeight = height/8;
+		this.overlayRenderer = new THREE.WebGLRenderer({
+			  antialias : antialias,
+			  alpha: true
+			});
+		this.overlayRenderer.setClearColor(parseInt(background.replace('#', '0x'), 16), alpha);
+		this.overlayRenderer.sortObjects = false;
+		this.overlayRenderer.setSize(oWidth, oHeight);
+		this.overlayRenderer.shadowMap.enabled = false;
+		this.overlayRenderer.autoClear = false;
 
 		// create the global scene
-		this.scene = new THREE.Scene();
+		this._sceneRoot = new THREE.Scene();
+		this.scene = new THREE.Group();
+		this._sceneRoot.add(this.scene);
+		this.scene.rotation.set(-Math.PI/2, 0, -Math.PI/2);	// This is required to transform from WebGL to ROS coordinate systems
+
 
 		// create the global camera
 		this.camera = new THREE.PerspectiveCamera(40, width / height, near, far);
@@ -815,36 +899,36 @@ class ViperViewer
 		// add controls to the camera
 		this.cameraControls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
 		this.cameraControls.userZoomSpeed = cameraZoomSpeed;
+		
+		this.overlayCamera = new THREE.PerspectiveCamera(40, width / height, near, far);
+		this.overlayCamera.position.set(0, 0, 10);
+		this.overlayScene = new THREE.Scene();
 
 		// lights
 		this.scene.add(new THREE.AmbientLight(0x555555));
 		this.directionalLight = new THREE.DirectionalLight(0xffffff, intensity);
 		this.scene.add(this.directionalLight);
 		this.directionalLight.position.x = -0.3;
-		this.directionalLight.position.z = -0.2;
-		this.ambientLight = new THREE.AmbientLight( 0x404040 ); // soft white light
-		this.scene.add( this.ambientLight );
+		this.directionalLight.position.y = -0.2;
+		this.directionalLight.position.z = 1.0;
+		this.directionalLight.lookAt(0, 0, 0);
 
 		// propagates mouse events to three.js objects
 		this.selectableObjects = new THREE.Object3D();
-		this.scene.add(this.selectableObjects);
-		/*var mouseHandler = new MouseHandler({
-		  renderer : this.renderer,
-		  camera : this.camera,
-		  rootObject : this.selectableObjects,
-		  fallbackTarget : this.cameraControls
-		});
-
-		// highlights the receiver of mouse events
-		this.highlighter = new Highlighter({
-		  mouseHandler : mouseHandler
-		});*/
+		this._sceneRoot.add(this.selectableObjects);
 
 		this.stopped = true;
 		this.animationRequestId = undefined;
 
 		// add the renderer to the page
-		document.getElementById(divID).appendChild(this.renderer.domElement);
+		var mainRenderer = document.createElement("div");
+		var overlayRenderer = document.createElement("div");
+		document.getElementById(divID).setAttribute("style", "position: relative");
+		overlayRenderer.setAttribute("style", "position:absolute;top:0;left:0;z-index: 10;width:" + oWidth + "px;height:"+ oHeight +"px");
+		document.getElementById(divID).appendChild(mainRenderer);
+		document.getElementById(divID).appendChild(overlayRenderer);
+		mainRenderer.appendChild(this.renderer.domElement);
+		overlayRenderer.appendChild(this.overlayRenderer.domElement);
 		
 		// begin the render loop
 		this.start();
@@ -878,7 +962,11 @@ class ViperViewer
 
 		// set the scene
 		this.renderer.clear(true, true, true);
-		this.renderer.render(this.scene, this.camera);
+		this.renderer.render(this._sceneRoot, this.camera);
+		//this.renderer.clearDepth();
+		//this.overlayRenderer.clear(true, true, true);
+		this.overlayRenderer.render(this.overlayScene, this.overlayCamera);
+		//this.renderer.setSize(target.x, target.y);
 		//this.highlighter.renderHighlights(this.scene, this.renderer, this.camera);
 
 		// draw the frame
