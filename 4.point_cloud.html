@@ -35,7 +35,7 @@
 			viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 800, height: 600, addAxis: false });
 			viewer.cameraControls.target = new THREE.Vector3(0, 0, 2);
 			pointCloudSpace = new THREE.Group();
-			pointCloudSpace.rotation.set(Math.PI/2, Math.PI/2, 0);
+			//pointCloudSpace.rotation.set(Math.PI/2, Math.PI/2, 0);
 			viewer.scene.add(pointCloudSpace);
 			var axesHelper = new THREE.AxesHelper( 1 );
 			pointCloudSpace.add( axesHelper );

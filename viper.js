@@ -38,13 +38,11 @@ this.connect = function() {
 
     this.ros.on('error', function(error) {
       __instance.log('Error connecting to websocket server: ', error);
-      //this.connected = false;
       VIPER.checkStatus(__instance);
     });
 
     this.ros.on('close', function() {
       __instance.log('Connection to websocket server closed.');
-      //this.connected = false;
       VIPER.checkStatus(__instance);
     });
   }
@@ -201,8 +199,13 @@ this.subscribeStereoimage = function(topic, callback){
 		var focal = message.disparityImage.f;
 		var baseline = message.disparityImage.T;
 		var disparityBuffer = new DataView(Base64Binary.decodeArrayBuffer(message.disparityImage.image.data));
-		callback({rgb:rgbBuffer, disparity: disparityBuffer, width: w, height: h, focal: focal, baseline: baseline, 
-			dispMin: message.disparityImage.min_disparity, dispMax: message.disparityImage.max_disparity});
+		callback({rgb:rgbBuffer, 
+			disparity: disparityBuffer, 
+			width: w, height: h, 
+			focal: focal, baseline: baseline, 
+			dispMin: message.disparityImage.min_disparity, 
+			dispMax: message.disparityImage.max_disparity,
+			frameId: message.header.frame_id});
   });
 
   return listener;
@@ -368,9 +371,10 @@ this.rgbdToCloud = function(data, points3DBuffer, pointSize) {
 				r = data.rgb[ip];
 				g = data.rgb[ip + 1];
 				b = data.rgb[ip + 2];
-				positions[ip] = cx; 
-				positions[ip + 1] = cy; 
-				positions[ip + 2] = cz; 
+				// Convert to ROS
+				positions[ip] = cz; 
+				positions[ip + 1] = cx; 
+				positions[ip + 2] = cy; 
 				colors[ip] = r/255; 
 				colors[ip + 2] = b/255; 
 				colors[ip + 1] = g/255; 
@@ -429,9 +433,9 @@ this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h, pointSize) {
 			if (isFinite(x) && x > 1 && !isNaN(x) && ! isNaN(y) && !isNaN(z))
 			{
 				if (x > 20) x = 20;
-				positions[ip] = y; 
-				positions[ip + 1] = z; 
-				positions[ip + 2] = x; 
+				positions[ip] = x; 
+				positions[ip + 1] = y; 
+				positions[ip + 2] = z; 
 				// NOTE: BGR to RGB transform
 				colors[ip + 2] = r/255; 
 				colors[ip + 1] = g/255; 
@@ -448,7 +452,7 @@ this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h, pointSize) {
 	points3DBuffer.geometry.attributes.position.needsUpdate = true;
 	points3DBuffer.geometry.attributes.color.needsUpdate = true;
 	if (pointSize != null) {
-		points3DBuffer.material.uniforms.pointSize = pointSize;
+		points3DBuffer.material.uniforms['pointSize'].value = pointSize;
 		points3DBuffer.material.needsUpdate = true;
 	}
 }
@@ -490,7 +494,7 @@ this.onTfUpdate = function(msg){
 this.onNewTf = function(id){
 	var tfUpdateFn = function(tf) {
 		this.position.set(tf.translation.x, tf.translation.y, tf.translation.z);
-		this.setRotationFromQuaternion(tf.rotation);
+		this.setRotationFromQuaternion(new THREE.Quaternion(tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w));
 	}
 	this.tfClient.subscribe(id, tfUpdateFn.bind(this.tfNodes.get(id)));
 	if (this.newTfCallback != null) this.newTfCallback(id);
@@ -503,29 +507,33 @@ this.getCvmService = function() {
   });
 }
 
-this.getConfigNode = function(node, name) {
+this.getConfigNode = function(nodeName) {
 	for (var [ttopic, config] of this.dynamicConfig) {
-		if (config.node == node)
+		if (config.node == nodeName)
 		{
 			return config;
 		}
 	}
 }
 
-this.setParameter = function(node, name, value, callback){
+this.updateConfgNode = function(cfgNode, callback) {
 	var configService = new ROSLIB.Service({
-	ros : viper.ros,
-	name : node + '/set_parameters',
-	serviceType : 'dynamic_reconfigure/Reconfigure'
+		ros : viper.ros,
+		name : cfgNode.node + '/set_parameters',
+		serviceType : 'dynamic_reconfigure/Reconfigure'
     });
-	var cfgNode = this.getConfigNode(node);
-	var param = cfgNode.getParameter(name);
-	param.value = value;
 	var request = new ROSLIB.ServiceRequest({config: cfgNode.cfg});
 	
 	configService.callService(request, function(result) {
 		if (callback != null) callback(result);
     });
+
+}
+
+this.setParameter = function(nodeName, paramName, value, callback){
+	var cfgNode = this.getConfigNode(nodeName);
+	cfgNode.setParamValue( paramName, value);
+	this.updateConfgNode(cfgNode, callback);
 }
 
 /** Default VIPER log function. Override to redirect log to different output
@@ -601,11 +609,35 @@ class ConfigItem
 		for (var b of this.cfg.ints) ret.push(b);
 		return ret;
 	}
+	getAllDescriptions(){
+		var ret = [];
+		for (var b of this.desc.dflt.bools) ret.push({ name: b.name, value: b.value, type: "bool"});
+		for (var b of this.desc.dflt.doubles) ret.push({ name: b.name, value: b.value, type: "double"});
+		for (var b of this.desc.dflt.strs) ret.push({ name: b.name, value: b.value, type: "string"});
+		for (var b of this.desc.dflt.ints) ret.push({ name: b.name, value: b.value, type: "int"});
+		return ret;
+	}
 	
 	getParameter(name){
 		for (var param of this.getAllValues())
 			if (param.name == name) 
 				return param;
+	}
+	
+	getParamDesc(name) {
+		for (var desc of this.getAllDescriptions())
+			if (desc.name == name) 
+				return desc;
+	}
+	
+	setParamValue(paramName, value) {
+		var param = this.getParameter(paramName);
+		var desc = this.getParamDesc(paramName);
+		if (desc.type == "double") param.value = parseFloat(value);
+		else if (desc.type == "int") param.value = parseInt(value);
+		else if (desc.type == "bool") param.value = value == "true";
+		else param.value = value;
+
 	}
 	
 }
@@ -831,6 +863,41 @@ VIPER.pointCloudFragmentShader = function() {
 		gl_FragColor = vec4( vColor.x, vColor.y, vColor.z, 1.0 );
 		}
 	`
+}
+
+
+/* Function converts vector from ROS to GL convention
+ */
+VIPER.vec3Ros2Gl = function(ros) {
+	var rotMat = new THREE.Matrix4();
+	rotMat.makeRotationFromEuler(new THREE.Euler(-Math.PI/2, 0, -Math.PI/2));
+	var ret = ros.clone();
+	ret.applyMatrix4(rotMat);
+	return ret;
+}
+
+/* Function converts vector from GL to ROS convention
+ */
+VIPER.vec3Gl2Ros = function(webGl) {
+	var rotMat = new THREE.Matrix4();
+	rotMat.makeRotationFromEuler(new THREE.Euler(-Math.PI/2, 0, -Math.PI/2));
+	rotMat.getInverse(rotMat);
+	var ret = webGl.clone();
+	ret.applyMatrix4(rotMat);
+	return ret;
+}
+
+VIPER.mat4Ros2Gl = function(ros) {
+	var rotMat = new THREE.Matrix4();
+	rotMat.makeRotationFromEuler(new THREE.Euler(-Math.PI/2, 0, -Math.PI/2));
+	return rotMat.multiply(ros.clone());
+}
+
+VIPER.mat4Gl2Ros = function(webGl) {
+	var rotMat = new THREE.Matrix4();
+	rotMat.makeRotationFromEuler(new THREE.Euler(-Math.PI/2, 0, -Math.PI/2));
+	rotMat.getInverse(rotMat);
+	return rotMat.multiply(webGl.clone());
 }
 
 /** Class which creates 3D view from div element and customizes basic scene elements light lighting, grid and view controls
