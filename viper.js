@@ -39,11 +39,13 @@ this.connect = function() {
     this.ros.on('error', function(error) {
       __instance.log('Error connecting to websocket server: ', error);
       VIPER.checkStatus(__instance);
+	  alert('Error connecting to websocket server: ' + error);
     });
 
     this.ros.on('close', function() {
       __instance.log('Connection to websocket server closed.');
       VIPER.checkStatus(__instance);
+	  alert('Connection to websocket server closed.');
     });
   }
   else
@@ -474,12 +476,14 @@ this.subscribeTf = function(newTfCallback) {
 this.onTfUpdate = function(msg){
 	for(var tf of msg.transforms){
 		var parent = tf.header.frame_id;
+		if (parent[0] == '/') parent = parent.substring(1);
 		if (this.tfNodes.get(parent) == null)
 		{
 			this.tfNodes.set(parent, new THREE.Group());
 			this.onNewTf(parent);
 		}
 		var child = tf.child_frame_id;
+		if (child[0] == '/') child = child.substring(1);
 		if (this.tfNodes.get(child) == null)
 		{
 			this.tfNodes.set(child, new THREE.Group());
@@ -492,6 +496,7 @@ this.onTfUpdate = function(msg){
 }
 
 this.onNewTf = function(id){
+	viper.log('New TF frame, id: ', id);
 	var tfUpdateFn = function(tf) {
 		this.position.set(tf.translation.x, tf.translation.y, tf.translation.z);
 		this.setRotationFromQuaternion(new THREE.Quaternion(tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w));

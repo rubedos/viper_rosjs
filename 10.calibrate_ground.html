@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>Calibrate Ground. VIPER ROSJS</title>
+	<meta charset="utf-8" />
+	<script src="3rdparty/numeric.js"></script>
+	<script src="3rdparty/three.js"></script>
+	<script src="3rdparty/controls/OrbitControls.js"></script>
+	<script src="3rdparty/eventemitter2.js"></script>
+	<script src="3rdparty/roslib.js"></script>
+	<script src="3rdparty/ROS3D/build/ros3d.js"></script>
+	<script src="3rdparty/base64-binary.js"></script>
+	<script src="viper.js" type="text/javascript"></script>
+	<script src="3rdparty/WebGL.js"></script>
+	<style>
+	.emph{
+		color:white;
+		font-weight: bold;
+		font-size:110%;
+		text-decoration:underline;
+	}
+	.step_sub{
+		font-size: 16px;
+	}
+	.guide{
+		font-size: 12px;
+	}
+	th{
+		font-size:20px;
+		color:#aaaaaa;
+		border-width:1px;
+		border-style: solid;
+		border-color: #cccccc;
+		text-align: left
+	}
+	th > td
+	{
+		text-align: left
+	}
+	td{
+		vertical-align:top
+	}
+	.step_active >tr >th
+	{
+		color:#9999ff;
+		font-size:30px;
+	}
+	
+	.closed_step{
+		visibility: collapse;
+	}
+	.open_step{
+		visibility: visible;
+		background: #555555;
+	}
+	</style>
+	
+    <script>
+	
+		/** Function uses SVD method to find best fitting plane for the set of points
+		https://math.stackexchange.com/questions/99299/best-fitting-plane-given-a-set-of-points
+		 */ 
+		function bestFitPlane(points){
+			if (points.length < 3) throw "Need at least 3 points for a plane";
+			var mat = [];
+			var avg = new THREE.Vector3(0, 0, 0);
+			for (var p of points) { 
+				avg.set(avg.x + p.x, avg.y + p.y, avg.z + p.z);
+			}
+			// centroid
+			avg.set(avg.x / points.length, avg.y / points.length, avg.z / points.length);
+			for (var p of points) { 
+				mat.push(p.clone().sub(avg).toArray());
+			}
+			var svd = numeric.svd(mat);
+			var V = numeric.transpose(svd.V);
+
+			var v = new THREE.Vector3().fromArray( V[2]);
+			var a = v.x;
+			var b = v.y;
+			var c = v.z;
+			var d = -(a * avg.x + b * avg.y + c * avg.z);
+			var plane = new THREE.Plane( new THREE.Vector3(a, b, c), d);
+			plane.normalize();
+			return plane;
+
+		}
+	
+		function test() {
+			// sample plane
+			var A = 3, B = 6.0, C = -2, D = 1;
+		
+			var points = [];
+			/*points.push( new THREE.Vector3(1, 0.1, 2));
+			points.push( new THREE.Vector3(10, 0, 0));
+			points.push( new THREE.Vector3(0, 0, 10));
+			points.push( new THREE.Vector3(10, 2, 10));*/
+			
+			points.push( new THREE.Vector3(0., 4., -(0. * A + 4. * B + D)/C));
+			points.push( new THREE.Vector3(1., 5., -(1. * A + 5. * B + D)/C));
+			points.push( new THREE.Vector3(2., 6., -(2. * A + 6. * B + D)/C));
+			points.push( new THREE.Vector3(3., 7., -(3. * A + 7. * B + D)/C));
+
+			/*var m = [[1,2,3],[4,5,6],[7,1,9], [1, 2, 3]];
+			var n = [[1,2,3, 7],[4,5,6, 7],[7,1,9, 7]];
+			var mi = numeric.inv(m);
+			
+			numeric.mul( m, m);*/
+			
+			var mat = [];
+			//var matA = [];
+			//var matB = [];
+			var avg = new THREE.Vector3(0, 0, 0);
+			for (var p of points) { 
+				avg.set(avg.x + p.x, avg.y + p.y, avg.z + p.z);
+			}
+			avg.set(avg.x / points.length, avg.y / points.length, avg.z / points.length);
+			for (var p of points) { 
+				mat.push(p.clone().sub(avg).toArray());
+				//matA.push([p.x, p.y, 1]);
+				//matB.push([p.z]);
+			}
+
+
+			//matB = numeric.transpose(matB);
+			/*var AT = numeric.transpose(matA);
+			var im = numeric.mul(AT, matA);
+			var tmpA = numeric.inv(im);
+			var tmpB = numeric.mul(AT, matB);
+			var fit = numeric.mul(tmpA, tmpB);*/
+				
+			//mat = numeric.transpose(mat)
+			
+			var svd = numeric.svd(mat);
+			var vt = numeric.transpose(svd.V)
+
+			var v = new THREE.Vector3().fromArray( vt[2]);
+			var a = v.x;
+			var b = v.y;
+			var c = v.z;
+			var d = -(a * avg.x + b * avg.y + c * avg.z);
+			var plane = {d:1.0, a: a/d, b:b/d, c:c/d};
+			
+			return;
+			var ws = [[1, 0, 0, 0, 2],
+					   [0, 0, 3, 0, 0],
+					   [0, 0, 0, 0, 0],
+					   [0, 2, 0, 0, 0]];
+			ws = numeric.transpose(ws); 
+
+			
+
+			
+			var svd2 = numeric.svd(ws);
+			console.log('U = \n', numeric.prettyPrint(svd2.U));
+			console.log('S = \n', numeric.prettyPrint(svd2.S));
+			console.log('V = \n', numeric.prettyPrint(svd2.V));
+			
+			//var iv = numeric.dot(svd2.V, numeric.transpose(svd2.V));
+			//var iu = numeric.dot(svd2.U, numeric.transpose(svd2.U));
+			var t2 = numeric.dot(numeric.dot(svd2.U, svd2.S), numeric.transpose(svd2.V));
+			t2 = numeric.transpose(t2);
+			console.log(numeric.prettyPrint(t2));
+			
+		}
+		
+		function makePlane(x, y, z, d) {
+			var n = new THREE.Vector3( x, y, z);
+			n.normalize();
+			return new THREE.Plane(n, d);
+		}
+		
+		function test2() {
+			var plane = makePlane(-1, 0, 0, 2);
+			
+			var mat = getPlaneMat( plane);
+			var t = new THREE.Vector3(), s = new THREE.Vector3();var r = new THREE.Quaternion();
+			mat.decompose(t, r, s);
+			logMatrix(mat, '-1, 0, 0');
+			
+			/*plane = makePlane(0, -1, 0, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '0, -1, 0');
+			
+			plane = makePlane(0, 0, -1, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '0, 0, -1');*/
+
+			plane = makePlane(-1, -1, 0, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '-1, -1, 0');
+
+			/*plane = makePlane(0, 0, 1, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '-1, -1, 0');
+			
+			plane = makePlane(-1, 0, 1, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '-1, -1, 0');
+			
+			plane = makePlane(0, 1, 0, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '-1, -1, 0');
+			
+			plane = makePlane(-1, 1, 0, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '-1, -1, 0');
+
+			plane = makePlane(-1, 0, -1, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '-1, -1, 0');
+
+			plane = makePlane(-1, -1, -1, 2);
+			mat = getPlaneMat( plane);
+			mat.decompose(t, r, s);
+			logMatrix(mat, '-1, -1, 0');*/
+		}
+		
+		/** This example demonstrates how to calibrate ground and set TF frames for the ground and parent link
+		 */
+		if ( WEBGL.isWebGLAvailable() === false ) {
+			document.body.appendChild( WEBGL.getWebGLErrorMessage() );
+		} 
+		var viper = null; 	// viper handle
+		var sub = null;		// subscription handle
+		var cloud = null; 	// pointcloud model
+		var viewer = null;	// 3d viewer
+		var pointSize = 5.0;
+		var cloudGroup;
+		var groundMarkers;
+		var ground;
+		var planeGroup;
+		var raycaster;
+		var currentMarker;
+		var mouse = new THREE.Vector2();
+		var cloudFrameId = null;
+		var cvmBaseFrameId;
+		var groundFrameId;
+		var cvmBaseWorldMatrixRos;	// CVM base frame world matrix in ROS CS.
+		var cvmBaseControl;
+		var groundControl;
+
+		var namespace;
+		function onload() {
+			//test(); return;
+			viewer = VIPER.createDefault3DViewer({ divElement: 'viewer', width: 800, height: 600, addAxis: false });
+			viewer.cameraControls.target = new THREE.Vector3(0, 0, 2);
+			cloudGroup = new THREE.Group();
+			viewer.scene.add(cloudGroup);
+			groundMarkers = new THREE.Group();
+			viewer.scene.add(groundMarkers); // raycasting result is in WebGL coordinates
+			planeGroup = new THREE.Group();
+			viewer.scene.add(planeGroup);
+			viewer.renderer.domElement.addEventListener('click', onMouseClickViewer, false );
+			viewer.renderer.domElement.addEventListener('mousemove', onMouseMove, false );
+			
+			raycaster = new THREE.Raycaster();
+			raycaster.params.Points.threshold = pointSize;
+			
+			cvmBaseControl = new Control6D({divID: 'cvm_base_input', name:'VIPER Base Coordinates', tmin:-2, tmax:2});
+			cvmBaseControl.onInput = function() {
+				var xPos = cvmBaseControl.getTranslation();
+				var xEul = cvmBaseControl.getEuler();
+				var cfg = viper.getConfigNode('/' + namespace + '/cvm_description/parent_link');
+				cfg.setParamValue('position_x', xPos.x.toFixed(3));
+				cfg.setParamValue('position_y', xPos.y.toFixed(3));
+				cfg.setParamValue('position_z', xPos.z.toFixed(3));
+				cfg.setParamValue('rotation_r', (xEul.x / Math.PI * 180).toFixed(1));
+				cfg.setParamValue('rotation_p', (xEul.y / Math.PI * 180).toFixed(1));
+				cfg.setParamValue('rotation_y', (xEul.z / Math.PI * 180).toFixed(1));
+				viper.updateConfgNode(cfg);
+			}
+
+			groundControl = new Control6D({divID: 'ground_input', name:'Ground Coordinates', tmin:-3, tmax:3});
+			groundControl.onInput = function() {
+				//var cvmGroundFrame = viper.tfNodes.get(groundFrameId);
+				var xPos = groundControl.getTranslation();
+				var xEul = groundControl.getEuler();
+				var cfg = viper.getConfigNode('/' + namespace + '/cvm_description/cvm_ground_link');
+				cfg.setParamValue('position_x', xPos.x.toFixed(3));
+				cfg.setParamValue('position_y', xPos.y.toFixed(3));
+				cfg.setParamValue('position_z', xPos.z.toFixed(3));
+				cfg.setParamValue('rotation_r', (xEul.x / Math.PI * 180).toFixed(1));
+				cfg.setParamValue('rotation_p', (xEul.y / Math.PI * 180).toFixed(1));
+				cfg.setParamValue('rotation_y', (xEul.z / Math.PI * 180).toFixed(1));
+				viper.updateConfgNode(cfg);
+			}
+			
+			displayChanged();
+			
+			///----------
+			var g1 = new THREE.Group();
+			viewer.scene.add(g1);
+			g1.position.set(1, 0.5, 0.75);
+			g1.rotation.set(0, Math.PI/4, 0);
+			g1.add(new Bone("b1").root);
+			//bones.get("b1").setPosition(new THREE.Vector3(1, 0.5, 0.75), new THREE.Quaternion().setFromEuler( new THREE.Euler(0, Math.PI/4, 0)));
+			
+			var g2 = new THREE.Group();
+			viewer.scene.add(g2);
+			g2.position.set(0, 0.3, 0);
+			g2.rotation.set(0, 0, 0);
+			g2.add(new Bone("b2").root);
+			g1.add(g2);
+			//bones.get("b2").setPosition(new THREE.Vector3(0, 0.3, 0), new THREE.Quaternion().setFromEuler( new THREE.Euler(0, 0, 0)));
+			
+		}
+		
+		function resetMarkers() {
+			while (groundMarkers.children.length >0) {
+				groundMarkers.remove(groundMarkers.children[0]);
+			}
+			while (planeGroup.children.length >0) {
+				planeGroup.remove(planeGroup.children[0]);
+			}
+		}
+		
+		// Creates plane transformation matrix, assuming that plane origin has normal vector (0, 0, 1);
+		function getPlaneMat( plane) {
+			var normal = plane.normal.clone();
+			//viper.log(plane.normal);
+			normal.normalize();
+			var pos = normal.clone().multiplyScalar(-plane.constant);
+			/*var orient = new THREE.Quaternion().setFromUnitVectors( new THREE.Vector3(0, 0, 1), normal );
+			var mat = new THREE.Matrix4();
+			mat.makeRotationFromQuaternion( orient);
+			mat.setPosition( pos); */
+			
+			// Try again, this time with orthonormal basis
+			var zBase = normal;
+			var yBase = new THREE.Vector3(0, 0, 0);
+			var xBase = new THREE.Vector3(0, 0, 0);
+			var project = pos.clone();
+			project.add(new THREE.Vector3(1, 0, 0));
+			plane.projectPoint(project, xBase);
+			xBase.sub(pos);
+			if (xBase.length() > 0.001) { // check for singularity
+				xBase.negate();
+				xBase.normalize();
+				var yBase = xBase.clone().cross(zBase);
+			}
+			else {
+				viper.log('y base');
+				var project = pos.clone();
+				project.add(new THREE.Vector3(0, 1, 0));
+				plane.projectPoint(project, yBase);
+				yBase.sub(pos);
+				yBase.normalize();
+				var xBase = yBase.clone().cross(zBase);
+			}
+			
+			var mat = new THREE.Matrix4();
+			mat.makeBasis(xBase, yBase, zBase);
+			mat.setPosition(pos);
+		
+			//logMatrix(mat, 'Ground plane');
+			return mat;
+		}
+		
+		function estimateGround() {
+			if (groundMarkers.children.length < 3) return; 	// not enough points for a plane
+			var points = [];
+			for (var p of groundMarkers.children) {
+				var inRos = p.position.clone();
+				inRos.applyMatrix4(cvmBaseWorldMatrixRos);
+				points.push(p.position);
+			}
+			var plane = bestFitPlane(points);
+			var glPlaneNormal = VIPER.vec3Ros2Gl( plane.normal.clone());
+			/*var ph = new THREE.PlaneHelper( new THREE.Plane(glPlaneNormal, plane.constant), 3, 0xffff00);
+			while (planeGroup.children.length >0) {
+				planeGroup.remove(planeGroup.children[0]);
+			}
+			planeGroup.add(ph);*/
+			var groundMat = getPlaneMat(plane);
+			var cvmLookDir = new THREE.Vector3(1, 0, 0);
+		
+			viper.log(cvmLookDir);
+			viper.log('Angle VIPER - plane normal ', cvmLookDir.angleTo(plane.normal));
+			if (cvmLookDir.angleTo(plane.normal) < Math.PI/2) {	// Flip plane surface
+				viper.log('Calculated plane faces away from cammera. Flipping normal');
+				plane.negate();
+				groundMat = getPlaneMat(plane);
+			}
+			var xPos = new THREE.Vector3();
+			var xScale = new THREE.Vector3();
+			var xRot = new THREE.Quaternion();
+			groundMat.decompose(xPos, xRot, xScale);
+			var xEul = new THREE.Euler().setFromQuaternion(xRot, 'ZYX'); // NOTE: 'ZYX' is to switch from local to world rotation axes
+			
+			// Apply transform on ground link configuration
+			var cfg, param;
+			cfg = viper.getConfigNode('/' + namespace + '/cvm_description/cvm_ground_link');
+			//viper.log(xRot);
+			cfg.setParamValue('position_x', xPos.x.toFixed(3));
+			cfg.setParamValue('position_y', xPos.y.toFixed(3));
+			cfg.setParamValue('position_z', xPos.z.toFixed(3));
+			cfg.setParamValue('rotation_r', (xEul.x / Math.PI * 180).toFixed(1));
+			cfg.setParamValue('rotation_p', (xEul.y / Math.PI * 180).toFixed(1));
+			cfg.setParamValue('rotation_y', (xEul.z / Math.PI * 180).toFixed(1));
+			viper.updateConfgNode(cfg);
+		}
+		
+		function logMatrix(mat, n) {
+			var xPos = new THREE.Vector3();
+			var xScale = new THREE.Vector3();
+			var xRot = new THREE.Quaternion();
+			mat.decompose(xPos, xRot, xScale);
+			viper.log(n + ' Position ', xPos.x.toFixed(3), ', ', xPos.y.toFixed(3), ', ', xPos.z.toFixed(3), ' m');
+			var e = new THREE.Euler().setFromQuaternion(xRot, "ZYX");
+			viper.log(n + ' Rotation: ', (e.x / Math.PI * 180).toFixed(1), ', ', (e.y / Math.PI * 180).toFixed(1), ', ', (e.z / Math.PI * 180).toFixed(1), ' deg');
+			
+			/*var g = createGroundModel();
+			viewer.scene.add(g);
+			g.position.set(xPos.x, xPos.y, xPos.z);
+			g.setRotationFromQuaternion(xRot);*/
+			//g.applyMatrix(mat);
+			
+		}
+		
+		function onMouseClickViewer(event) {
+			if (currentMarker != null && currentMarker.visible) {
+				currentMarker.children[0].material.color.set( 0xff3300);
+				currentMarker = null;
+				estimateGround();
+			}
+		}
+		
+		function onMouseMove(event) {
+			if ( viper == null || !viper.connected || cloud == null) return;
+			raycaster.params.Points.threshold = pointSize*0.001 * 5; // to mm.
+			var canvas_model = viewer.renderer.domElement;
+			var bounds = canvas_model.getBoundingClientRect()
+			mouse.x = ( (event.clientX - bounds.left) / canvas_model.clientWidth ) * 2 - 1;
+			mouse.y = - ( (event.clientY - bounds.top) / canvas_model.clientHeight ) * 2 + 1;
+			
+			raycaster.setFromCamera( mouse, viewer.camera );
+			var objects = [];
+			objects.push(cloud);
+			var intersects = raycaster.intersectObjects(objects);
+			if (intersects.length > 0) {
+				if (currentMarker == null) {
+					currentMarker = new THREE.Group();
+					groundMarkers.add(currentMarker);
+					var geometry = new THREE.SphereGeometry( 0.05, 32, 32 );
+					var material = new THREE.MeshBasicMaterial( {color: 0xffff00} );
+					material.opacity = 0.5;
+					material.transparent = true;
+					var sphere = new THREE.Mesh( geometry, material );
+					currentMarker.add( sphere );
+				}
+				var rosPos = VIPER.vec3Gl2Ros(intersects[0].point);
+				var relative = cvmBaseWorldMatrixRos.clone().getInverse(cvmBaseWorldMatrixRos);
+				rosPos.applyMatrix4(relative);
+				currentMarker.visible = true;
+				currentMarker.position.set(rosPos.x, rosPos.y, rosPos.z);
+			}
+			else {
+				if (currentMarker != null) currentMarker.visible = false;
+			}
+		}
+		
+		function init(w, h){
+			var amount = w * h;
+			cloud = viper.createPointCloud3D(w, h);
+			cloudGroup.add(cloud);
+			displayChanged();
+		}
+
+		function connect() {
+			var ip = document.getElementById('viper_ip').value;
+			viper = new VIPER({viper_ip : ip});
+			viper.onConnected = onConnected;
+			viper.connect();
+		}
+		
+		// Callback invoked when connected to viper
+		function onConnected() {
+			document.getElementById('stop_streaming').disabled = false;
+			document.getElementById('connect_button').disabled = true;
+			namespace = viper.deviceInfo.get("VIPER_PREFIX");
+			for (var app of viper.apps) 
+				if (app.id == "cvm-obstactle-detector")
+					if (!app.isActive) {
+						alert('Obstacle avoidance application is not activated!');
+						return;
+					}
+
+			groundFrameId = namespace + '/cvm_ground_link';
+			cvmBaseFrameId = namespace + '/cvm_base_link';
+			cloudFrameId = namespace + '/left_camera_link';
+			subscribeRgbd();
+			viper.subscribeTf(function(id){
+				var tfAxis = new THREE.AxesHelper(0.25);
+				if (bones.get(id) == null)
+					viper.tfNodes.get(id).add(new Bone(id).root);
+				if (id === 'base_link')	// To display TF node tree
+					viewer.scene.add(viper.tfNodes.get(id));
+				if (id == cloudFrameId) {
+					viper.tfNodes.get(id).add(tfAxis);
+					viper.tfNodes.get(id).add(cloudGroup);
+				}
+				if (id == cvmBaseFrameId) {
+					viper.tfNodes.get(id).add(tfAxis);
+					viper.tfNodes.get(id).add(VIPER.createViper3DModel());
+					viper.tfNodes.get(id).add(groundMarkers);
+					viper.tfNodes.get(id).add(planeGroup);
+					
+				}
+				if (id == groundFrameId) {
+					viper.tfNodes.get(id).add(tfAxis);
+					ground = createGroundModel();
+					viper.tfNodes.get(id).add(ground);
+				}
+			});
+			/*viper.tfClient.subscribe(cloudFrameId, function(tf){
+				viper.log( new THREE.Euler().setFromQuaternion(new THREE.Quaternion(tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w)));
+				viper.log(tf.rotation);
+			});*/
+			viper.tfClient.subscribe(groundFrameId, function(tf){
+				cfg = viper.getConfigNode('/' + namespace + '/cvm_description/cvm_ground_link');
+				var t = new THREE.Vector3(cfg.getParameter('position_x').value, cfg.getParameter('position_y').value, cfg.getParameter('position_z').value);
+				var e = new THREE.Euler(cfg.getParameter('rotation_r').value/180*Math.PI, cfg.getParameter('rotation_p').value/180*Math.PI, cfg.getParameter('rotation_y').value/180*Math.PI);
+				groundControl.setEuler(e);
+				groundControl.setTranslation(t);
+				bones.get(cvmBaseFrameId).setPosition( new THREE.Vector3(tf.translation.x, tf.translation.y, tf.translation.z), new THREE.Quaternion(tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w));
+			});
+
+			viper.tfClient.subscribe(cvmBaseFrameId, function(tf){
+				var cvmBase = viper.tfNodes.get(cvmBaseFrameId);
+				cvmBaseWorldMatrixRos = VIPER.mat4Gl2Ros(cvmBase.matrixWorld);
+				cfg = viper.getConfigNode('/' + namespace + '/cvm_description/parent_link');
+				var t = new THREE.Vector3(cfg.getParameter('position_x').value, cfg.getParameter('position_y').value, cfg.getParameter('position_z').value);
+				var e = new THREE.Euler(cfg.getParameter('rotation_r').value/180*Math.PI, cfg.getParameter('rotation_p').value/180*Math.PI, cfg.getParameter('rotation_y').value/180*Math.PI);
+				cvmBaseControl.setEuler(e);
+				cvmBaseControl.setTranslation(t);
+				//bones.get(cvmBaseFrameId).setPosition( new THREE.Vector3(tf.translation.x, tf.translation.y, tf.translation.z), new THREE.Quaternion(tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w));
+			});
+			setStep(1);
+		}
+		
+		function subscribeRgbd() {
+			sub = viper.subscribeStereoimage('/' + namespace + '/stereo/disparity', 
+				function(data){
+					countFrames();
+					cloudFrameId = data.frame_id;
+					if (cloud == null) init(data.width, data.height);
+					pointSize = parseFloat( document.getElementById('pointSize').value);
+					viper.rgbdToCloud(data, cloud, pointSize);
+			});		
+		}
+		
+		function createGroundModel() {
+			var size = 5;	// m
+			var downShift = 0.001;	// Lower plane and grid to avoid overlapping with other objects
+			var groundBase = new THREE.Group();
+			groundBase.add( new THREE.ArrowHelper( new THREE.Vector3( 1, 0, 0 ), new THREE.Vector3( 0, 0, 0 ), 5, 0xff0000, 0.4 ));
+			groundBase.add( new THREE.ArrowHelper( new THREE.Vector3( 0, 1, 0 ), new THREE.Vector3( 0, 0, 0 ), 5, 0x00ff00, 0.4 ));
+			groundBase.add( new THREE.ArrowHelper( new THREE.Vector3( 0, 0, 1 ), new THREE.Vector3( 0, 0, 0 ), 1, 0x0000ff, 0.4 ));
+			var plane = new THREE.Mesh( new THREE.PlaneGeometry( size, size*2 ), 
+				new THREE.MeshBasicMaterial( {color: 0xcccccc, side: THREE.DoubleSide} ));
+			groundBase.add( plane );
+			plane.material.opacity = 0.8;
+			plane.material.transparent = true;
+			plane.position.set(size/2, 0, -downShift);
+			var points, arc;
+			var majorMaterial = new THREE.LineBasicMaterial( { color : 0xeeeeee } );
+			var minorMaterial = new THREE.LineBasicMaterial( { color : 0x777777 } );
+			// arcs
+			for (var i = 0; i < size * 5; i++) {
+				var arcCurve = new THREE.EllipseCurve( 0, 0, i/5, i/5, -Math.PI/2, Math.PI/2, false);
+				points = arcCurve.getPoints( 50 );
+				var material = i % 5 == 0 ? majorMaterial : minorMaterial;
+				arc = new THREE.Line( new THREE.BufferGeometry().setFromPoints( points ), material );
+				groundBase.add(arc);
+			}
+			// angle lines
+			for (var i = -90; i < 90; i += 15) {
+				var lineCurve = new THREE.LineCurve3( new THREE.Vector3(0, 0, -downShift), new THREE.Vector3( Math.cos( i / 180 * Math.PI) * (size +0.3), Math.sin( i / 180 * Math.PI) * (size +0.3), -downShift));
+				var material = i % 45 == 0 ? majorMaterial : minorMaterial;
+				arc = new THREE.Line( new THREE.BufferGeometry().setFromPoints( lineCurve.getPoints() ), material );
+				groundBase.add(arc);
+			}
+			
+			/* Restricted due to CORS policy
+			var loader = new THREE.FontLoader();
+
+			loader.load( './fonts/helvetiker_regular.typeface.json', function ( font ) {
+
+				var geometry = new THREE.TextGeometry( 'Ground Plane', {
+					font: font,
+					size: 80,
+					height: 5,
+					curveSegments: 12,
+					bevelEnabled: true,
+					bevelThickness: 10,
+					bevelSize: 8,
+					bevelOffset: 0,
+					bevelSegments: 5
+				} );
+				var textMesh1 = new THREE.Mesh( geometry, new THREE.MeshBasicMaterial( {color: 0x888888, side: THREE.DoubleSide} ));
+				groundBase.add(textMesh1);
+			} );
+			*/
+			return groundBase;
+		}
+		
+		
+	
+		// Close subscriptions and connections
+		function finalize() {
+			stopVideoStream();
+			viper.close();
+		}
+		
+		// Cancel subscription
+		function stopVideoStream() {
+			sub.unsubscribe();
+		}
+		
+		function displayChanged() {
+			if (cloud != null) cloud.visible = document.getElementById('pointcloud_cb').checked;
+			if (ground != null) ground.visible = document.getElementById('plane_cb').checked;
+			if (groundMarkers != null) groundMarkers.visible = document.getElementById('markers_cb').checked;
+		}		
+		
+		function setStep(step){
+			for (var i = 1; i < 4; i++){
+				document.getElementById('step'+ i).className = "step";
+				document.getElementById('step'+ i + '_content').className = 'closed_step';
+			}
+			document.getElementById('step'+ step).className = "step_active";
+			document.getElementById('step'+ step + '_content').className = 'open_step';
+
+			document.getElementById('markers_cb').checked = false;
+			document.getElementById('plane_cb').checked = false;
+			
+			if (step == 2){
+				document.getElementById('markers_cb').checked = true;
+				document.getElementById('plane_cb').checked = true;
+			}
+			displayChanged();
+		}
+		
+		
+		var bones = new Map();
+	
+		class Bone {
+			constructor(frameId){
+				this.root = new THREE.Group();
+				bones.set(frameId, this);
+				//if (frameId != cvmBaseFrameId) return this;
+				this.setPosition(new THREE.Vector3(), new THREE.Quaternion());
+			}
+			
+			setPosition(pos, orient) {
+				while (this.root.children.length >0) {
+					this.root.remove(this.root.children[0]);
+				}
+				if (pos.length() > 0.01){
+					var geometry = new THREE.ConeGeometry( 0.02, pos.length(), 32 );
+					var material = new THREE.MeshStandardMaterial( {color: 0x00aa00, metalness: 0.5} );
+					var cone = new THREE.Mesh( geometry, material );
+					this.root.add(cone);
+					cone.position.set(0, 0, pos.length()/2);
+					cone.rotation.set(-Math.PI/2, 0, 0);
+					var invPos = pos.clone().negate();
+					var invRot = orient.clone().inverse();
+					this.root.position.set(0, 0, 0);
+					this.root.setRotationFromQuaternion(new THREE.Quaternion(0, 0, 0, 1));
+					//this.root.matrix.set(new THREE.Matrix4().identity());
+					
+					var mat = new THREE.Matrix4();
+					mat.compose(invPos, invRot, new THREE.Vector3(1, 1, 1));
+					
+					var to = new THREE.Vector3(0, 0, 0).applyMatrix4(mat);
+					var lineCurve = new THREE.LineCurve3( new THREE.Vector3(0, 0, 0), to);
+					//if (this.line != null) this.root.parent.parent.children.remove(this.line);
+					this.line = new THREE.Line( new THREE.BufferGeometry().setFromPoints( lineCurve.getPoints() ), material );
+					//this.root.parent.parent.add(this.line);
+					
+					
+					//mat.getInverse(mat);
+					//this.root.applyMatrix(mat);
+					
+					var vFrom = new THREE.Vector3(0, 0, 1);
+					var vTo = new THREE.Vector3(0, 0, 0).applyMatrix4(mat);
+					vTo.normalize();
+					var rotationQ = new THREE.Quaternion().setFromUnitVectors(vFrom, vTo);
+					this.root.setRotationFromQuaternion(rotationQ);
+
+					//this.root.setRotationFromQuaternion(new THREE.Quaternion(invRot.x, invRot.y, invRot.z, invRot.w));
+					this.root.position.set(pos.x, pos.y, pos.z);
+				
+				}
+			}	
+		}
+		
+			
+		var lastCalledTime;
+		var lastUpdate = Date.now();
+		var fps;
+		function countFrames() {
+			if(!lastCalledTime) {
+				lastCalledTime = Date.now();
+				fps = 0;
+			 return;
+			}
+			delta = (Date.now() - lastCalledTime)/1000;
+			lastCalledTime = Date.now();
+			fps = 1/delta;
+			if ((Date.now() - lastUpdate) > 200) {
+				lastUpdate = Date.now();
+				document.getElementById("fps_label").innerText = 'Render FPS: ' + Number((fps).toFixed(1));
+			}
+		}
+		
+	class Control6D
+	{
+		
+		epsilon = 1E-6;
+		cacheUpdateTimeout = 2000; //ms
+		waitingForUpdate = false;
+		
+		posCache = new THREE.Vector3();
+		eulerCache = new THREE.Euler();
+		
+		constructor(options){
+			var divID = options.divID;
+			var tMin = options.tmin == null? -10 : options.tmin;
+			var tMax = options.tmax == null? 10 : options.tmax;
+			var rMin = options.rmin == null? -90 : options.rmin;
+			var rMax = options.rmax == null? 90 : options.rmax;
+			var root = document.getElementById(divID);
+			var next = root.appendChild(document.createElement("fieldset"));
+			next.style = 'font-size: 75%';
+			next.appendChild(document.createElement("legend")).innerText = options.name;
+			next = next.appendChild(document.createElement("table"));
+			next.setAttribute('style', 'width:100%');
+			var buttonBar = next.appendChild(document.createElement("tr")).appendChild(document.createElement("td"));
+			buttonBar.setAttribute('colspan', '5');
+			var resetButton = buttonBar.appendChild(document.createElement("button"));
+			resetButton.innerText = '0';
+			resetButton.style = 'font-size: 75%';
+			resetButton.addEventListener('click', function() 
+			{ 
+				this.resetTranslation();
+				this.resetRotation();
+			}.bind(this));
+			var resetT = buttonBar.appendChild(document.createElement("button"));
+			resetT.innerText = 'T0';
+			resetT.style = 'font-size: 75%';
+			resetT.addEventListener('click', function() 
+			{ 
+				this.resetTranslation();
+			}.bind(this));
+			var resetR = buttonBar.appendChild(document.createElement("button"));
+			resetR.innerText = 'R0';
+			resetR.style = 'font-size: 75%';
+			resetR.addEventListener('click', function() 
+			{ 
+				this.resetRotation();
+			}.bind(this));
+			var coords = ['X', 'Y', 'Z', 'RX', 'RY', 'RZ'];
+			this.inputs = new Map();
+			for (var coord of coords) {
+				var isTranslate = coord.length < 2;
+				var tr = next.appendChild(document.createElement("tr"));
+				tr.appendChild(document.createElement("td")).appendChild(document.createElement("label")).innerText = coord + ':';
+				var slider = tr.appendChild(document.createElement("td")).appendChild(document.createElement("input"));
+				slider.type = "range";
+				slider.value = 0;
+				slider.setAttribute('style', 'width:100%');
+				var number = tr.appendChild(document.createElement("td")).appendChild(document.createElement("input"));
+				number.type = "number";
+				number.value = '0.0';
+				number.setAttribute('style', 'align:left; width:50px; padding:3px');
+				if (isTranslate) {
+					slider.min = tMin;
+					slider.max = tMax;
+					slider.step = 0.1;
+					tr.appendChild(document.createElement("td")).appendChild(document.createElement("label")).innerText = 'm';
+				}
+				else {
+					slider.min = rMin;
+					slider.max = rMax;
+					slider.step = 1;
+					tr.appendChild(document.createElement("td")).appendChild(document.createElement("label")).innerText = 'deg';
+				}
+				
+				slider.addEventListener( 'input', function(ev){ 
+					this.value = ev.srcElement.value;
+				}.bind(number));
+				slider.addEventListener( 'input', function(){ this.onInput();}.bind(this));
+				
+				number.addEventListener( 'change', function(ev){ 
+					this.value = ev.srcElement.value;
+				}.bind(slider));
+				number.addEventListener( 'change', function(){ this.onInput();}.bind(this));
+				
+				this.inputs.set(coord, {slider: slider, number: number });
+			}
+		}
+		
+		resetTranslation() {
+			this.posCache = new THREE.Vector3();
+			this.setTranslation(this.posCache);
+			this.waitingForUpdate = false;
+			this.updateFromCache();
+			this.onInput();
+		}
+		
+		resetRotation() {
+			this.eulerCache = new THREE.Euler();
+			this.setEuler(this.eulerCache);
+			this.waitingForUpdate = false;
+			this.updateFromCache();
+			this.onInput();
+		}		
+		isSamePose(vec) {
+			var t = this.getTranslation();
+			if (Math.abs(this.posCache.x - t.x) > this.epsilon ||
+				Math.abs(this.posCache.y - t.y) > this.epsilon ||
+				Math.abs(this.posCache.z - t.x) > this.epsilon ) return false;
+			return true;
+		}
+		
+		setValue(axis, val) {
+			this.inputs.get(axis).number.value = val;
+			this.inputs.get(axis).slider.value = val;
+		}
+		
+		updateFromCache() {
+			if (!this.isSamePose(this.posCache))
+			{
+				this.setValue("X", this.posCache.x);
+				this.setValue("Y", this.posCache.y);
+				this.setValue("Z", this.posCache.z);
+			}
+			var e = this.getEuler();
+			if (Math.abs(this.eulerCache.x - e.x) > this.epsilon ||
+				Math.abs(this.eulerCache.y - e.y) > this.epsilon ||
+				Math.abs(this.eulerCache.z - e.x) > this.epsilon )
+			{
+				this.setValue("RX", Math.round(this.eulerCache.x / Math.PI * 180));
+				this.setValue("RY", Math.round(this.eulerCache.y / Math.PI * 180));
+				this.setValue("RZ", Math.round( this.eulerCache.z / Math.PI * 180));
+			}
+			this.waitingForUpdate = false;
+		}
+		
+		setTranslation(vec) {
+			this.posCache = vec.clone();
+			if (this.waitingForUpdate) return;
+			setTimeout(this.updateFromCache.bind(this), this.cacheUpdateTimeout);
+			this.waitingForUpdate = true;
+		}
+		
+		isEquiv(q) {
+			var thisQ = this.getQuaternion();
+			return Math.abs(q.x - thisQ.x) < this.epsilon &&
+				Math.abs(q.y - thisQ.y) < this.epsilon &&
+				Math.abs(q.z - thisQ.z) < this.epsilon
+				Math.abs(q.w - thisQ.w) < this.epsilon;
+		}
+		
+		setEuler(eul) {
+			this.eulerCache = eul;
+			if (this.waitingForUpdate) return;
+			setTimeout(this.updateFromCache.bind(this), this.cacheUpdateTimeout);
+			this.waitingForUpdate = true;
+		}
+		
+		setQuaternion(q) {
+			if (this.isEquiv(q)) return;
+			this.setEuler( new THREE.Euler().setFromQuaternion(q), "ZYX");
+		}
+
+		getTranslation() {
+			return new THREE.Vector3(parseFloat(this.inputs.get("X").number.value), 
+				parseFloat(this.inputs.get("Y").number.value), 
+				parseFloat(this.inputs.get("Z").number.value));
+		}
+		
+		getEuler() {
+			return new THREE.Euler(parseFloat(this.inputs.get("RX").number.value/180 * Math.PI), 
+				parseFloat(this.inputs.get("RY").number.value/180 * Math.PI), 
+				parseFloat(this.inputs.get("RZ").number.value/180 * Math.PI), "ZYX");
+		}
+		getQuaternion() {
+			return new THREE.Quaternion().setFromEuler(this.getEuler());
+		}
+		
+		onInput = function(coord) {};
+		
+	
+	}
+
+	</script>
+</head>
+<body style="background: #333333; color:white; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
+	<p><div style="color:darkgray;size:small">This application helps configuring VIPER base frame position and ground link (TF). Refresh page to start over again.</div></p>
+	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();" id="connect_button">Connect</button><button style="padding-right:20px; padding-left:20px; width:80px" onclick="stopVideoStream();" id="stop_streaming" disabled>Stop</button></div>
+	
+	<table id="controls">
+		<tr>
+			<td style="width:500px;">
+			<table style="width:100%" class="guide">
+				<thead class="step" onclick="setStep(1);" id="step1">
+					<tr>
+						<th colspan="2"><label>STEP 1. </label><Label class="step_sub">DEFINE VIPER POSITION</label></th>
+					</tr>
+				</thead>
+				<tr id="step1_content" class="closed_step">
+					<td>
+						<p><div class="emph">A. Connect to the VIPER.</div> If connection is successfull you shall start seeing a point cloud.</p>
+						<p><div class="emph">B. Define VIPER position on the robot.</div> It's 6 coordinates in Cartesian XYZ for translation and R-XYZ for rotation. Usually the position comes from CAD data of the robot design but in many cases a simple ruler can help measuring approximate values. Keep in mind that VIPER base is the tripod mounting hole at the bottom of the body and distance must be measured to the robot base point (e.g. center point of diff-drive construct).</p>
+						<p>Below are controls for setting VIPER base exact position. Remember: you can set them any time in dynamic configuration of VIPER ('cvm_description/parent_link'):</p>
+						<div id="cvm_base_input" style="width:330px"></div>
+						<p>
+						<button style="width:80px" onclick="setStep(2);">Next >></button>
+						</p>
+					</td>
+				</tr>
+				<thead class="step" onclick="setStep(2);" id="step2">
+					<tr>
+						<th colspan="2" ><label>STEP 2. </label><Label class="step_sub">DEFINE GROUND</label></th>
+					</tr>
+				</thead>
+				<tr id="step2_content" class="closed_step">
+					<td>
+						<p><div class="emph">A. Click on the ground in pointcloud</div> At least 3 points are needed on the ground, but more is better. Click several times on the ground and the plane shall be calculated automatically:</p>
+						<p><image src="images/markers.png"></p>
+						<p><button style="padding-right:20px; padding-left:20px; width:130px" onclick="resetMarkers();">Reset points</button> <label>(to restart)</label> </p>
+						<p><div class="emph">B. Alternatively: Enter exact ground coordinates</div> In the VIPER configuration it's the distance from VIPER base to ground links (TF transforms). The pointcloud-projected laser-scan shall be simulated on the ground. </p>
+						<div id="ground_input" style="width:330px"></div>
+						<p><div class="emph">C. Adjust ground height.</div> The noise from the pointcloud might produce undesired obstacles in laserscan so it is advised to lift the actual ground plane slightly up (5-10cm). Place small obstacles on the ground and adjust the plane until noise is gone, but the obstacles are still visible</p>
+						<div></div>
+						<p>	<button style="width:80px" onclick="setStep(3);">Next >></button>	</p>
+					</td>
+				</tr>
+				<thead class="step"onclick="setStep(3);" id="step3">
+					<tr>
+						<th colspan="2"><label>STEP 3. </label><Label class="step_sub">CONFIGURE VOLUME</label></th>
+					</tr>
+				</thead>
+				<tr id="step3_content" class="closed_step">
+					<td>
+						<p/>
+						
+					</td>
+				</tr>
+			</table>
+			</td>
+			<td>
+			<table >
+				<tr >
+					<td >
+					</td>
+					<td colspan="2">
+						<div id="viewer"></div>
+					</td>
+				</tr>
+				<tr>
+					<td></td>
+					<td></td>
+					<td style="text-align: left; width:150px"><div id="fps_label"/></td>
+				</tr>
+				
+				<tr>
+					<td></td>
+					<td >
+					</td>
+					<td></td>
+				</tr>
+				<tr>
+					<td></td>
+					<td style="text-align: right;">Point size:</td>
+					<td><input value="5.0" id="pointSize" type="number" style="align:left;width:50px"></input></td>
+				</tr>
+				<tr>
+					<td></td>
+					<td colspan="1" style="vertical-align:top"> 
+						<fieldset>
+							<legend>Display</legend>
+							<input type="checkbox" id="pointcloud_cb" checked="true" onclick="displayChanged();">
+							<label>Pointcloud</label><br/>
+							<input type="checkbox" id="markers_cb" onclick="displayChanged();">
+							<label>Markers</label><br/>
+							<input type="checkbox" id="plane_cb" onclick="displayChanged();">
+							<label >Plane</label></br>
+							<input type="checkbox" id="laserscan_cb" onclick="displayChanged();">
+							<label >Laserscan</label>
+						</fieldset>
+					</td>
+					<td>
+						
+					</td>
+
+				</tr>
+			</table>
+			</td>
+		</tr>
+	</table>
+
+	
+</body>
+
+</html>
