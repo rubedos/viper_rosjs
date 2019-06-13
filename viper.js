@@ -459,6 +459,53 @@ this.updatePointsBuffer = function(rosBuffer, points3DBuffer, w, h, pointSize) {
 	}
 }
 
+/** This function updates laserscan 3d model with new data from topic message
+ */
+this.updateLaserScan = function (lsMsg, lsGroup){
+	var maxLs = lsMsg.range_max;
+	var minLs = lsMsg.range_min;
+	var angle = lsMsg.angle_min;
+	var origin = new THREE.Vector3(0, 0, 0);
+	var geometry = new THREE.Geometry();
+	geometry.vertices.push(origin);
+	var phase = Math.floor((new Date()).getMilliseconds()/ 100) % 3; // just for laser beam animation
+
+	for (var i = 0; i < lsMsg.ranges.length + 1; i++){
+		var ray;
+		var nextPoint = new THREE.Vector3();
+		var nextInfinity = false;
+		if (i == lsMsg.ranges.length)
+		{
+		  nextPoint = origin;
+		}
+		else
+		{
+		  nextInfinity = !isFinite(lsMsg.ranges[i]);
+		  if (nextInfinity)
+			ray = maxray;
+		  else
+			ray = lsMsg.ranges[i];
+		  nextPoint = new THREE.Vector3( ( Math.cos(angle) * ray) + origin.z, ( Math.sin(angle) * ray) + origin.x,  origin.y);
+		}
+		var beamW = 0.01;
+		geometry.vertices.push(nextPoint);
+		if (i%3 == phase)
+		{
+			var length = nextPoint.length() > 0.01 ? nextPoint.length() : 0.01;
+			var minPoint = nextPoint.clone().multiplyScalar( (0.01/ length));
+			geometry.vertices.push(minPoint);
+			geometry.vertices.push(nextPoint);
+		}
+		prevInfinity = nextInfinity;
+		prevPoint = nextPoint;
+		angle += lsMsg.angle_increment;
+	}
+	var material = new THREE.LineBasicMaterial({ color: 0x00aa00 });
+	var line = new THREE.Line(geometry, material);
+	lsGroup.children.length = 0;
+	lsGroup.add(line);
+}
+
 this.subscribeTf = function(newTfCallback) {
 	this.tfNodes = new Map();
 	this.newTfCallback = newTfCallback.bind(this);

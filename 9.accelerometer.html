@@ -46,7 +46,7 @@
 			viewer.cameraControls.position0.set(1, 1, 1);
 			// Creating 2 x 2 views from all angles for easier observation
 			var frontView = VIPER.createDefault3DViewer({ divElement: 'front', width: width, height: height, addAxis : false });
-			frontView.scene = viewer.scene;
+			frontView._sceneRoot = viewer._sceneRoot;
 			frontView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
 			frontView.camera.zoom = zoom;
 			frontView.camera.position.set(0, 0, -10);
@@ -56,7 +56,7 @@
 			frontView.camera.updateProjectionMatrix();
 
 			var topView = VIPER.createDefault3DViewer({ divElement: 'top', width: width, height: height, addAxis : false });
-			topView.scene = viewer.scene;
+			topView._sceneRoot = viewer._sceneRoot;
 			topView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
 			topView.camera.zoom = zoom;
 			topView.camera.position.set(0, 10, 0);
@@ -66,7 +66,7 @@
 			topView.camera.updateProjectionMatrix();
 
 			var leftView = VIPER.createDefault3DViewer({ divElement: 'leftView', width: width, height: height, addAxis : false });
-			leftView.scene = viewer.scene;
+			leftView._sceneRoot = viewer._sceneRoot;
 			leftView.camera = new THREE.OrthographicCamera( 0.5* width / - 2, 0.5*width / 2, 0.5*height / 2, 0.5*height / - 2, 0.1, 1000 );
 			leftView.camera.zoom = zoom;
 			leftView.camera.position.set(-10, 0, 0);
@@ -273,7 +273,7 @@
 		}
 	</script>
 </head>
-<body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
+<body style="background: #333333; color:white; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
 	<p><div style="color:darkgray;size:small">Hint: open javascript console for more information (Ctrl + Shift + I)...</div></p>
 	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();">Connect</button></div>
 	<table>

@@ -46,7 +46,7 @@
 		function myLog(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10) {
 			var myConsole = document.getElementById('myConsole');
 			var t = new Date();
-			color = '#000000';	// INFO
+			color = '#ffffff';	// INFO
 			switch (level){
 				case 1: color = '#555555'; break;
 				case 4: color = '#FFA07A'; break;
@@ -59,7 +59,7 @@
 		}
 	</script>
 </head>
-<body style="background: lightgray; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
+<body style="background: #333333; color:white; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
 	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();">Connect</button></div>
 	<div id="myConsole"></div>
 </body>

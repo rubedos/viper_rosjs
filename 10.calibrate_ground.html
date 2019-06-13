@@ -239,15 +239,20 @@
 		var groundMarkers;
 		var ground;
 		var planeGroup;
-		var raycaster;
-		var currentMarker;
+		var raycaster;		
+		var currentMarker;	// currently selected ground plane marker
 		var mouse = new THREE.Vector2();
-		var cloudFrameId = null;
-		var cvmBaseFrameId;
-		var groundFrameId;
+		var cloudFrameId = null;	// Id of pointcloud frame
+		var cvmBaseFrameId;	// Id of cvm_base_link TF 
+		var groundFrameId;	// Id of ground_link TF
 		var cvmBaseWorldMatrixRos;	// CVM base frame world matrix in ROS CS.
 		var cvmBaseControl;
-		var groundControl;
+		var groundControl;	// 
+		var laserScanGroup;	// Model to display laserscan volume parameters
+		var laserScan;	// Model to display laserscan
+		var laserScanHeightGroup;
+		
+		var groundHeight = -0.05; // m, height above ground (negative).
 
 		var namespace;
 		function onload() {
@@ -265,6 +270,13 @@
 			
 			raycaster = new THREE.Raycaster();
 			raycaster.params.Points.threshold = pointSize;
+			
+			laserScanGroup = new THREE.Group();
+			laserScan = new THREE.Group();
+			laserScanGroup.add(laserScan);
+			
+			laserScanHeightGroup = new THREE.Group();
+			laserScanGroup.add(laserScanHeightGroup);
 			
 			cvmBaseControl = new Control6D({divID: 'cvm_base_input', name:'VIPER Base Coordinates', tmin:-2, tmax:2});
 			cvmBaseControl.onInput = function() {
@@ -316,12 +328,17 @@
 		}
 		
 		function resetMarkers() {
-			while (groundMarkers.children.length >0) {
+			groundMarkers.children.length = 0;
+			/*while (groundMarkers.children.length >0) {
 				groundMarkers.remove(groundMarkers.children[0]);
-			}
-			while (planeGroup.children.length >0) {
+			}*/
+			planeGroup.children.lengtht = 0;
+			/*while (planeGroup.children.length >0) {
 				planeGroup.remove(planeGroup.children[0]);
-			}
+			}*/
+			document.getElementById('plane_cb').checked = false;
+			displayChanged();
+
 		}
 		
 		// Creates plane transformation matrix, assuming that plane origin has normal vector (0, 0, 1);
@@ -368,6 +385,7 @@
 		
 		function estimateGround() {
 			if (groundMarkers.children.length < 3) return; 	// not enough points for a plane
+			document.getElementById('plane_cb').checked = true; displayChanged();
 			var points = [];
 			for (var p of groundMarkers.children) {
 				var inRos = p.position.clone();
@@ -375,6 +393,8 @@
 				points.push(p.position);
 			}
 			var plane = bestFitPlane(points);
+			var d = plane.constant;
+			plane.constant += groundHeight;
 			var glPlaneNormal = VIPER.vec3Ros2Gl( plane.normal.clone());
 			/*var ph = new THREE.PlaneHelper( new THREE.Plane(glPlaneNormal, plane.constant), 3, 0xffff00);
 			while (planeGroup.children.length >0) {
@@ -389,6 +409,7 @@
 			if (cvmLookDir.angleTo(plane.normal) < Math.PI/2) {	// Flip plane surface
 				viper.log('Calculated plane faces away from cammera. Flipping normal');
 				plane.negate();
+				plane.constant = -d + groundHeight;
 				groundMat = getPlaneMat(plane);
 			}
 			var xPos = new THREE.Vector3();
@@ -428,6 +449,7 @@
 		}
 		
 		function onMouseClickViewer(event) {
+			if (!document.getElementById('markers_cb').checked) return;
 			if (currentMarker != null && currentMarker.visible) {
 				currentMarker.children[0].material.color.set( 0xff3300);
 				currentMarker = null;
@@ -469,6 +491,12 @@
 			}
 		}
 		
+		function changeGroundHeight(value) {
+			groundHeight = -parseFloat(value);
+			document.getElementById('groundHeight_l').innerText = -groundHeight + ' m';
+			estimateGround();
+		}
+		
 		function init(w, h){
 			var amount = w * h;
 			cloud = viper.createPointCloud3D(w, h);
@@ -506,7 +534,7 @@
 				if (id === 'base_link')	// To display TF node tree
 					viewer.scene.add(viper.tfNodes.get(id));
 				if (id == cloudFrameId) {
-					viper.tfNodes.get(id).add(tfAxis);
+					//viper.tfNodes.get(id).add(tfAxis);
 					viper.tfNodes.get(id).add(cloudGroup);
 				}
 				if (id == cvmBaseFrameId) {
@@ -520,6 +548,7 @@
 					viper.tfNodes.get(id).add(tfAxis);
 					ground = createGroundModel();
 					viper.tfNodes.get(id).add(ground);
+					viper.tfNodes.get(id).add(laserScanGroup);
 				}
 			});
 			/*viper.tfClient.subscribe(cloudFrameId, function(tf){
@@ -545,6 +574,13 @@
 				cvmBaseControl.setTranslation(t);
 				//bones.get(cvmBaseFrameId).setPosition( new THREE.Vector3(tf.translation.x, tf.translation.y, tf.translation.z), new THREE.Quaternion(tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w));
 			});
+			
+			sub = viper.subscribeTopic('/' + namespace + '/laser_scan', function(msg){
+				viper.updateLaserScan(msg, laserScan);
+			});
+			
+			updateLaserscanParameters();
+
 			setStep(1);
 		}
 		
@@ -584,8 +620,10 @@
 				groundBase.add(arc);
 			}
 			// angle lines
-			for (var i = -90; i < 90; i += 15) {
-				var lineCurve = new THREE.LineCurve3( new THREE.Vector3(0, 0, -downShift), new THREE.Vector3( Math.cos( i / 180 * Math.PI) * (size +0.3), Math.sin( i / 180 * Math.PI) * (size +0.3), -downShift));
+			for (var i = -90; i < 90; i += 1) {
+				var startPoint = new THREE.Vector3(0, 0, -downShift);
+				if (i%15 != 0) startPoint = new THREE.Vector3(Math.cos( i / 180 * Math.PI) * (size * 0.5), Math.sin( i / 180 * Math.PI) * (size * 0.5), -downShift);
+				var lineCurve = new THREE.LineCurve3( startPoint, new THREE.Vector3( Math.cos( i / 180 * Math.PI) * (size +0.3), Math.sin( i / 180 * Math.PI) * (size +0.3), -downShift));
 				var material = i % 45 == 0 ? majorMaterial : minorMaterial;
 				arc = new THREE.Line( new THREE.BufferGeometry().setFromPoints( lineCurve.getPoints() ), material );
 				groundBase.add(arc);
@@ -614,7 +652,68 @@
 			return groundBase;
 		}
 		
+		function updateLaserscanParameters() {
+			var cfg = viper.getConfigNode('/' + namespace + '/cvm_laserscan');
+			document.getElementById('laserScanMinHeight').value = cfg.getParameter('min_height').value;
+			document.getElementById('laserScanMaxHeight').value = cfg.getParameter('max_height').value;
+			document.getElementById('laserScanMinAngle').value = cfg.getParameter('min_angle').value;
+			document.getElementById('laserScanMaxAngle').value = cfg.getParameter('max_angle').value;
+			document.getElementById('laserScanMinRange').value = cfg.getParameter('min_range').value;
+			document.getElementById('laserScanMaxRange').value = cfg.getParameter('max_range').value;
+			laserScanVolumeInput();
+		}
 		
+		function laserScanVolumeInput() {
+			var minH = parseFloat(document.getElementById('laserScanMinHeight').value);
+			var maxH = parseFloat(document.getElementById('laserScanMaxHeight').value);
+			var minA = parseFloat(document.getElementById('laserScanMinAngle').value);
+			var maxA = parseFloat(document.getElementById('laserScanMaxAngle').value);
+			var minR = parseFloat(document.getElementById('laserScanMinRange').value);
+			var maxR = parseFloat(document.getElementById('laserScanMaxRange').value);
+			document.getElementById('minHeight_l').innerText = minH.toFixed(1);
+			document.getElementById('maxHeight_l').innerText = maxH.toFixed(1);
+			document.getElementById('minRange_l').innerText = minR.toFixed(1);
+			document.getElementById('maxRange_l').innerText = maxR.toFixed(1);
+			document.getElementById('minAngle_l').innerText = minA.toFixed(0);
+			document.getElementById('maxAngle_l').innerText = maxA.toFixed(0);
+			if (minH > maxH) maxH = minH;
+			if (minR > maxR) maxR = minR;
+			
+			var cfg = viper.getConfigNode('/' + namespace + '/cvm_laserscan');
+			cfg.setParamValue('min_height', minH.toFixed(1));
+			cfg.setParamValue('max_height', maxH.toFixed(1));
+			cfg.setParamValue('min_angle', minA.toFixed(1));
+			cfg.setParamValue('max_angle', maxA.toFixed(1));
+			cfg.setParamValue('min_range', minR.toFixed(1));
+			cfg.setParamValue('max_range', maxR.toFixed(1));
+			viper.updateConfgNode(cfg);
+
+			minA = minA/180*Math.PI;
+			maxA = maxA/180*Math.PI;
+			
+			laserScanGroup.position.set(0, 0, minH);
+			
+			var shape = new THREE.Shape();
+			shape.moveTo( Math.cos(minA) * minR, Math.sin(minA)*minR );
+			shape.lineTo( Math.cos(minA) * maxR, Math.sin(minA)*maxR );
+			shape.lineTo( Math.cos(maxA) * maxR, Math.sin(maxA)*maxR );
+			shape.lineTo( Math.cos(maxA) * minR, Math.sin(maxA)*minR );
+			shape.lineTo( Math.cos(minA) * minR, Math.sin(minA)*minR );
+
+			var extrudeSettings = {
+				steps: 1,
+				depth: maxH - minH,
+				bevelEnabled: false,
+			};
+
+			var geometry = new THREE.ExtrudeGeometry( shape, extrudeSettings );
+			var material = new THREE.MeshStandardMaterial( { color: 0xffff00, metalness: 0.4 } );
+			material.opacity = 0.3;
+			material.transparent = true;
+			var mesh = new THREE.Mesh( geometry, material ) ;
+			laserScanHeightGroup.children.length = 0;
+			laserScanHeightGroup.add( mesh );
+		}
 	
 		// Close subscriptions and connections
 		function finalize() {
@@ -631,6 +730,7 @@
 			if (cloud != null) cloud.visible = document.getElementById('pointcloud_cb').checked;
 			if (ground != null) ground.visible = document.getElementById('plane_cb').checked;
 			if (groundMarkers != null) groundMarkers.visible = document.getElementById('markers_cb').checked;
+			if (laserScanGroup != null) laserScanGroup.visible = document.getElementById('laserscan_cb').checked;
 		}		
 		
 		function setStep(step){
@@ -643,10 +743,15 @@
 
 			document.getElementById('markers_cb').checked = false;
 			document.getElementById('plane_cb').checked = false;
+			document.getElementById('laserscan_cb').checked = false;
+			laserScanHeightGroup.visibility = false;
 			
 			if (step == 2){
 				document.getElementById('markers_cb').checked = true;
-				document.getElementById('plane_cb').checked = true;
+			}
+			if (step == 3){
+				document.getElementById('laserscan_cb').checked = true;
+				laserScanHeightGroup.visibility = true;
 			}
 			displayChanged();
 		}
@@ -728,7 +833,7 @@
 	{
 		
 		epsilon = 1E-6;
-		cacheUpdateTimeout = 2000; //ms
+		cacheUpdateTimeout = 500; //ms
 		waitingForUpdate = false;
 		
 		posCache = new THREE.Vector3();
@@ -908,7 +1013,7 @@
 	</script>
 </head>
 <body style="background: #333333; color:white; cover;font-family:Arial;" onload="onload();" onunload="finalize()">
-	<p><div style="color:darkgray;size:small">This application helps configuring VIPER base frame position and ground link (TF). Refresh page to start over again.</div></p>
+	<p><div style="color:darkgray;size:small">This application helps configuring VIPER base frame position and ground link (TF). Refresh page to start all over again.</div></p>
 	<div id="inputs">Viper IP:&nbsp;<input id="viper_ip" value="192.168.1.170"/><button style="padding-right:20px; padding-left:20px;" onclick="connect();" id="connect_button">Connect</button><button style="padding-right:20px; padding-left:20px; width:80px" onclick="stopVideoStream();" id="stop_streaming" disabled>Stop</button></div>
 	
 	<table id="controls">
@@ -944,7 +1049,7 @@
 						<p><div class="emph">B. Alternatively: Enter exact ground coordinates</div> In the VIPER configuration it's the distance from VIPER base to ground links (TF transforms). The pointcloud-projected laser-scan shall be simulated on the ground. </p>
 						<div id="ground_input" style="width:330px"></div>
 						<p><div class="emph">C. Adjust ground height.</div> The noise from the pointcloud might produce undesired obstacles in laserscan so it is advised to lift the actual ground plane slightly up (5-10cm). Place small obstacles on the ground and adjust the plane until noise is gone, but the obstacles are still visible</p>
-						<div></div>
+						<div><label>Ground height:</label><input type="range" min="-0.2" max="0.5" step="0.05" value="0.05" oninput="changeGroundHeight(this.value);"><label id="groundHeight_l">0.05 m</label></div>
 						<p>	<button style="width:80px" onclick="setStep(3);">Next >></button>	</p>
 					</td>
 				</tr>
@@ -955,9 +1060,26 @@
 				</thead>
 				<tr id="step3_content" class="closed_step">
 					<td>
-						<p/>
-						
-					</td>
+						<table>
+						<tr><td colspan="4">
+							<p><div class="emph">A. Specify point cloud volume</div> Laserscan is a projection of points onto a ground plane. Specify what points should be taken into account - min/max height with respect to the ground. Also min/max range - a distance from the camera</p>
+							</td>
+						</tr>
+						<tr>
+							<td><label>Height (m). From: </label></td><td><label id="minHeight_l">0.0</label></td><td><input type="range" min="-2" max="2" step="0.1" value="0.0" oninput="laserScanVolumeInput();" id="laserScanMinHeight"><input type="range" min="-2" max="2" step="0.1" value="0.0" oninput="laserScanVolumeInput();" id="laserScanMaxHeight"></td><td><label>To: </label></td><td><label id="maxHeight_l">1.0</label></td>
+						</tr>
+						<tr>
+							<td><label>Range (m). From: </label></td><td><label id="minRange_l">1.0</label></td><td><input type="range" min="0" max="25" step="0.5" value="1.0" oninput="laserScanVolumeInput();" id="laserScanMinRange"><input type="range" min="1" max="25" step="0.5" value="20.0" oninput="laserScanVolumeInput();" id="laserScanMaxRange"></td><td><label>To: </label></td><td><label id="maxRange_l">20.0</label></td>
+						</tr>
+						<tr><td colspan="4">
+							<p><div class="emph">B. Specify laserscan min/max angles</div> Laserscan has a field of view specified by min and max angles - make sure that this FOV is not bigger than pointcloud and not too small so that more obstacles can be detected</p>
+							</td>
+						</tr>
+
+						<tr>
+							<td><label>View angle (deg). From: </label></td><td><label id="minAngle_l">-30</label></td><td><input type="range" min="-90" max="0" step="1" value="-30.0" oninput="laserScanVolumeInput();" id="laserScanMinAngle"><input type="range" min="0" max="90" step="1" value="30.0" oninput="laserScanVolumeInput();" id="laserScanMaxAngle"></td><td><label>To: </label></td><td><label id="maxAngle_l">30</label></td>
+						</tr>
+						</table>
 				</tr>
 			</table>
 			</td>
@@ -1000,6 +1122,8 @@
 							<label >Plane</label></br>
 							<input type="checkbox" id="laserscan_cb" onclick="displayChanged();">
 							<label >Laserscan</label>
+							<input type="checkbox" id="pointsInRed_cb" onclick="displayChanged();">
+							<label >Points in red</label>
 						</fieldset>
 					</td>
 					<td>
